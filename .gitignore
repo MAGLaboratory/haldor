@@ -2,3 +2,4 @@
 *.swap
 .DS_Store
 testrun.sh
+__pycache__
