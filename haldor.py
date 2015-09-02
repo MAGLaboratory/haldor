@@ -197,9 +197,11 @@ class Haldor(Daemon):
     epoll = select.epoll()
     self.register_epoll(epoll)
     
-    while True:      
-      epoll.poll(Haldor.checkup_interval)
-      # run a checkup whenever epoll returns
-      # Happens in two cases: 1) epoll times out 2) epoll received a trigger
+    while True:
       self.checkup()
+      epoll.poll(Haldor.checkup_interval)
+      # loop repeats whenever epoll returns
+      # Happens in two cases:
+      # 1) epoll times out (Haldor.checkup_interval)
+      # 2) epoll received a trigger
 
