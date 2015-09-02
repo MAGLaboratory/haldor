@@ -1,16 +1,19 @@
 
-import time, signal, subprocess, http.client, urllib, hmac, hashlib
+import time, signal, subprocess, http.client, urllib, hmac, hashlib, re, select
 from daemon import Daemon
 
 class Haldor(Daemon):
   """Watches the door and monitors various switches and motion via GPIO"""
 
   # TODO: enable these as configs passed to __init__
-  version = "0.0.1a"
+  version = "0.0.2a"
   io_channels = [7, 8, 25, 11, 24]
   io_names = {'Front Door': 7, 'Main Door': 8, 'Office Motion': 25, 'Shop Motion': 11, 'Open Switch': 24}
+  switch_channels = [7, 8, 24] # light switch and reed switch
+  pir_channels = [25, 11] # pir receives and outputs 5v
   gpio_path = "/sys/class/gpio"
   secret_path = "/home/haldor/.open-sesame"
+  ds18b20_path = "/sys/devices/w1_bus_master1/28-0000050585f4/w1_slave"
   host = "www.maglaboratory.org"
   use_ssl = True
   checkup_interval = 300
@@ -44,9 +47,9 @@ class Haldor(Daemon):
         time.sleep(1)
         # Have to run this script to chgrp and chown, apparently exported gpio
         # is still limited to root even though gpio group users can export
-        subprocess.call('sudo /root/haldor/enable_gpio.sh gpio{0}'.format(chan), shell=True)
+        subprocess.call('sudo /root/haldor/enable_gpio.sh {0}'.format(chan), shell=True)
   
-  def mark_input_channels(self):
+  def direct_channels(self):
     for chan in Haldor.io_channels:
       print("Marking {} as input".format(chan))
       direction_path = "{0}/gpio{1}/direction".format(Haldor.gpio_path, chan)
@@ -54,9 +57,27 @@ class Haldor(Daemon):
       file.write("in\n")
       file.close
   
+  def edge_channels(self):
+    # We're using epoll, so for switches, we'll watch for both rise and fall
+    for chan in Haldor.switch_channels:
+      print("Edging {0} as both".format(chan))
+      edge_path = "{0}/gpio{1}/edge".format(Haldor.gpio_path, chan)
+      file = open(edge_path, 'w')
+      file.write("both\n")
+      file.close()
+    
+    # For pir, since it rises and falls pretty quickly (<5s) we'll only watch for rise
+    for chan in Haldor.pir_channels:
+      print("Edging {0} as rising".format(chan))
+      edge_path = "{0}/gpio{1}/edge".format(Haldor.gpio_path, chan)
+      file = open(edge_path, 'w')
+      file.write("rising\n")
+      file.close()
+  
   def enable_gpio(self):
     self.export_channels()
-    self.mark_input_channels()
+    self.direct_channels()
+    self.edge_channels()
   
   def notify_hash(self, body):
     hasher = hmac.new(self.get_secret(), body, hashlib.sha256)
@@ -84,17 +105,37 @@ class Haldor(Daemon):
     return conn.getresponse()
   
   def notify_bootup(self):
-    #try:
+    uptime = ""
+    uname = ""
+    if_eth0 = ""
+    therm = ""
+  
+    print("Bootup:")
+    
+    try:
+      therm = subprocess.check_output(["cat", Haldor.ds18b20_path])
+    except:
+      print("\tw1 read error")
+    
+    try:
       uptime = subprocess.check_output("uptime")
       uname = subprocess.check_output(["uname", "-a"])
+    except:
+      print("\tuptime/uname read error")
+    
+    try:
       if_eth0 = subprocess.check_output(["/sbin/ifconfig", "eth0"])
+    except:
+      print("\teth0 read error")
       
-      resp = self.notify('bootup', {'uptime': uptime, 'uname': uname, 'ifconfig_eth0': if_eth0})
+  
+    try:
+      resp = self.notify('bootup', {'uptime': uptime, 'uname': uname, 'ifconfig_eth0': if_eth0, 'thermal': therm})
       self.session = resp.read()
       print("Bootup Complete: {0}".format(self.session))
-    #except:
+    except:
       # TODO: Error handling
-      #print("Bootup ERROR")
+      print("Bootup ERROR")
       pass
   
   
@@ -121,6 +162,17 @@ class Haldor(Daemon):
       gpios[name] = self.read_gpio(chan)
     
     return gpios
+    
+  def check_temp(self):
+    value = ""
+    try:
+      temp = subprocess.check_output(["cat", Haldor.ds18b20_path])
+      match = re.search('t=(\d+)', temp.decode('utf-8'))
+      value = match.group(1)
+    except:
+      value = "--"
+    
+    return value
   
   def notify_checkup(self, checks):
     self.notify('checkup', checks)
@@ -129,13 +181,25 @@ class Haldor(Daemon):
     print("Checkup.")
     checks = {}
     self.check_gpios(checks)
+    checks['Temperature'] = self.check_temp()
     print(checks)
     self.notify_checkup(checks)
+  
+  def register_epoll(self, epoll):
+    for chan in Haldor.io_channels:
+      fd = open("{0}/gpio{1}/value".format(Haldor.gpio_path, chan), 'r')
+      epoll.register(fd.fileno(), select.EPOLLET)
+      
   
   def run(self):
     self.bootup()
     
-    while True:
+    epoll = select.epoll()
+    self.register_epoll(epoll)
+    
+    while True:      
+      epoll.poll(Haldor.checkup_interval)
+      # run a checkup whenever epoll returns
+      # Happens in two cases: 1) epoll times out 2) epoll received a trigger
       self.checkup()
-      # Execute checkup every 5 minutes
-      time.sleep(Haldor.checkup_interval)
+

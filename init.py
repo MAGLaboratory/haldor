@@ -18,6 +18,9 @@ if None != os.getenv('HALDOR_SECRET_PATH'):
 
 if None != os.getenv('HALDOR_NOSSL'):
   Haldor.use_ssl = False
+  
+if None != os.getenv('HALDOR_DS18B20'):
+  Haldor.ds18b20_path = os.getenv('HALDOR_DS18B20')
 
 
 daemon = Haldor('/tmp/haldor.pid')
