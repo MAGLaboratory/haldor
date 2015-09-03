@@ -1,12 +1,14 @@
 
-import time, signal, subprocess, http.client, urllib, hmac, hashlib, re, select
+import time, signal, subprocess, http.client, urllib, hmac, hashlib, re
+#from functools import partial
+import RPi.GPIO as GPIO
 from daemon import Daemon
 
 class Haldor(Daemon):
   """Watches the door and monitors various switches and motion via GPIO"""
 
   # TODO: enable these as configs passed to __init__
-  version = "0.0.2a"
+  version = "0.0.3"
   io_channels = [7, 8, 25, 11, 24]
   io_names = {'Front Door': 7, 'Main Door': 8, 'Office Motion': 25, 'Shop Motion': 11, 'Open Switch': 24}
   switch_channels = [7, 8, 24] # light switch and reed switch
@@ -34,50 +36,23 @@ class Haldor(Daemon):
     return self.secret
   
   def export_channels(self):
-    # export gpio channels so we can do stuff with them
-    for chan in Haldor.io_channels:
-      # check for the gpio sys directory, we should be the only one managing it
-      # so if it's been exported, assume we have authority to control
-      print("Checking {}".format(chan))
-      chan_path = "{0}/gpio{1}".format(Haldor.gpio_path, chan)
-      if 0 != subprocess.call(["ls", chan_path]):
-        file = open("{0}/export".format(Haldor.gpio_path), 'a')
-        file.write("{0}\n".format(chan))
-        file.close()
-        time.sleep(1)
-        # Have to run this script to chgrp and chown, apparently exported gpio
-        # is still limited to root even though gpio group users can export
-        subprocess.call('sudo /root/haldor/enable_gpio.sh {0}'.format(chan), shell=True)
+    GPIO.setmode(GPIO.BCM)
   
   def direct_channels(self):
-    for chan in Haldor.io_channels:
-      print("Marking {} as input".format(chan))
-      direction_path = "{0}/gpio{1}/direction".format(Haldor.gpio_path, chan)
-      file = open(direction_path, 'w')
-      file.write("in\n")
-      file.close
-  
-  def edge_channels(self):
-    # We're using epoll, so for switches, we'll watch for both rise and fall
+    # pull up for switches, this means closed is 0 and open is 1
+    # we'll need to flip it later
     for chan in Haldor.switch_channels:
-      print("Edging {0} as both".format(chan))
-      edge_path = "{0}/gpio{1}/edge".format(Haldor.gpio_path, chan)
-      file = open(edge_path, 'w')
-      file.write("both\n")
-      file.close()
+      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+      GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
     
-    # For pir, since it rises and falls pretty quickly (<5s) we'll only watch for rise
+    # For pir sensor, it'll be connected to the 5V (with a voltage divider)
     for chan in Haldor.pir_channels:
-      print("Edging {0} as rising".format(chan))
-      edge_path = "{0}/gpio{1}/edge".format(Haldor.gpio_path, chan)
-      file = open(edge_path, 'w')
-      file.write("rising\n")
-      file.close()
+      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+      GPIO.add_event_detect(chan, GPIO.RISING, callback=self.event_checkup, bouncetime=800)
   
   def enable_gpio(self):
     self.export_channels()
     self.direct_channels()
-    self.edge_channels()
   
   def notify_hash(self, body):
     hasher = hmac.new(self.get_secret(), body, hashlib.sha256)
@@ -149,9 +124,15 @@ class Haldor(Daemon):
   def read_gpio(self, chan):
     value = '-1'
     try:
-      file = open("{0}/gpio{1}/value".format(Haldor.gpio_path, chan), 'r')
-      value = file.read().rstrip()
-      file.close()
+      if chan in Haldor.switch_channels:
+        # For switches, active high (1) means we're DISCONNECTED
+        # Flip it so a 1 means we're connected
+        if GPIO.input(chan) == 0:
+          value = 1
+        else:
+          value = 0
+      else:
+        value = GPIO.input(chan)
     except:
       value = '-2'
 
@@ -175,7 +156,8 @@ class Haldor(Daemon):
     return value
   
   def notify_checkup(self, checks):
-    self.notify('checkup', checks)
+    resp = self.notify('checkup', checks)
+    print(resp.read())
   
   def checkup(self):
     print("Checkup.")
@@ -185,23 +167,20 @@ class Haldor(Daemon):
     print(checks)
     self.notify_checkup(checks)
   
-  def register_epoll(self, epoll):
-    for chan in Haldor.io_channels:
-      fd = open("{0}/gpio{1}/value".format(Haldor.gpio_path, chan), 'r')
-      epoll.register(fd.fileno(), select.EPOLLET)
-      
+  def event_checkup(self, channel):
+    print("Event caught for {0}".format(channel))
+    self.checkup()
   
   def run(self):
     self.bootup()
     
-    epoll = select.epoll()
-    self.register_epoll(epoll)
-    
     while True:
       self.checkup()
-      epoll.poll(Haldor.checkup_interval)
-      # loop repeats whenever epoll returns
-      # Happens in two cases:
-      # 1) epoll times out (Haldor.checkup_interval)
-      # 2) epoll received a trigger
-
+      time.sleep(Haldor.checkup_interval)
+      # Threaded event detection will execute whenever it detects a change.
+      # This main loop will sleep and send data every 5 minutes regardless of how often stuff changes
+      
+      
+      
+      
+      
