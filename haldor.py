@@ -8,10 +8,11 @@ class Haldor(Daemon):
   """Watches the door and monitors various switches and motion via GPIO"""
 
   # TODO: enable these as configs passed to __init__
-  version = "0.0.3"
+  version = "0.0.4"
   io_channels = [7, 8, 25, 11, 24]
   io_names = {'Front Door': 7, 'Main Door': 8, 'Office Motion': 25, 'Shop Motion': 11, 'Open Switch': 24}
   switch_channels = [7, 8, 24] # light switch and reed switch
+  flip_channels = [24] # switch is flipped around (1 means closed, 0 means open)
   pir_channels = [25, 11] # pir receives and outputs 5v
   gpio_path = "/sys/class/gpio"
   secret_path = "/home/haldor/.open-sesame"
@@ -39,7 +40,7 @@ class Haldor(Daemon):
     GPIO.setmode(GPIO.BCM)
   
   def direct_channels(self):
-    # pull up for switches, this means closed is 0 and open is 1
+    # pull up for switches
     # we'll need to flip it later
     for chan in Haldor.switch_channels:
       GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -124,9 +125,9 @@ class Haldor(Daemon):
   def read_gpio(self, chan):
     value = '-1'
     try:
-      if chan in Haldor.switch_channels:
-        # For switches, active high (1) means we're DISCONNECTED
-        # Flip it so a 1 means we're connected
+      if chan in Haldor.flip_channels:
+        # For door switch, active high (1) means we're in the OFF position
+        # Flip it so a 1 means we're ON
         if GPIO.input(chan) == 0:
           value = 1
         else:
