@@ -39,17 +39,22 @@ class Haldor(Daemon):
   def export_channels(self):
     GPIO.setmode(GPIO.BCM)
   
+  def listen_channels(self):
+    for chan in Haldor.switch_channels:
+      GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
+      
+    for chan in Haldor.pir_channels:
+      GPIO.add_event_detect(chan, GPIO.RISING, callback=self.event_checkup, bouncetime=800)
+  
   def direct_channels(self):
     # pull up for switches
     # we'll need to flip it later
     for chan in Haldor.switch_channels:
       GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-      GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
     
     # For pir sensor, it'll be connected to the 5V (with a voltage divider)
     for chan in Haldor.pir_channels:
       GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-      GPIO.add_event_detect(chan, GPIO.RISING, callback=self.event_checkup, bouncetime=800)
   
   def enable_gpio(self):
     self.export_channels()
@@ -174,6 +179,7 @@ class Haldor(Daemon):
   
   def run(self):
     self.bootup()
+    self.listen_channels();
     
     while True:
       self.checkup()
