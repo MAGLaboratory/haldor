@@ -108,10 +108,19 @@ class Haldor(Daemon):
       if_eth0 = subprocess.check_output(["/sbin/ifconfig", "eth0"])
     except:
       print("\teth0 read error")
-      
+    
+    try:
+      my_ip = subprocess.check_output(["/usr/bin/curl", "-s", "http://whatismyip.akamai.com/"])
+    except:
+      print("\tmy ip read error")
+    
+    try:
+      local_ip = subprocess.check_output(["/home/haldor/haldor/local_ip.sh"])
+    except:
+      print("\tlocal ip read error")
   
     try:
-      resp = self.notify('bootup', {'uptime': uptime, 'uname': uname, 'ifconfig_eth0': if_eth0, 'thermal': therm})
+      resp = self.notify('bootup', {'uptime': uptime, 'uname': uname, 'ifconfig_eth0': if_eth0, 'thermal': therm, 'my_ip': my_ip, 'local_ip': local_ip})
       self.session = resp.read()
       print("Bootup Complete: {0}".format(self.session))
     except:
@@ -126,6 +135,7 @@ class Haldor(Daemon):
     self.session = "".encode('utf-8')
     self.enable_gpio()
     self.notify_bootup()
+    self.pings = 0
   
   def read_gpio(self, chan):
     value = '-1'
@@ -162,12 +172,27 @@ class Haldor(Daemon):
     return value
   
   def notify_checkup(self, checks):
+    self.pings+=1
     resp = self.notify('checkup', checks)
     print(resp.read())
   
   def checkup(self):
     print("Checkup.")
     checks = {}
+    
+    if(self.pings % 100 == 0):
+      try:
+        my_ip = subprocess.check_output(["/usr/bin/curl", "-s", "http://whatismyip.akamai.com/"])
+        checks['my_ip'] = my_ip
+      except:
+        print("\tmy ip read error")
+      
+      try:
+        local_ip = subprocess.check_output(["/home/haldor/haldor/local_ip.sh"])
+        checks['local_ip'] = local_ip
+      except:
+        print("\tlocal ip read error")
+    
     self.check_gpios(checks)
     checks['Temperature'] = self.check_temp()
     print(checks)
