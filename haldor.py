@@ -9,11 +9,11 @@ class Haldor(Daemon):
 
   # TODO: enable these as configs passed to __init__
   version = "0.0.4"
-  io_channels = [7, 8, 25, 11, 24]
-  io_names = {'Front Door': 7, 'Main Door': 8, 'Office Motion': 25, 'Shop Motion': 11, 'Open Switch': 24}
+  io_channels = [7, 8, 25, 9, 24]
+  io_names = {'Front Door': 7, 'Main Door': 8, 'Office Motion': 25, 'Shop Motion': 9, 'Open Switch': 24}
   switch_channels = [7, 8, 24] # light switch and reed switch
   flip_channels = [24] # switch is flipped around (1 means closed, 0 means open)
-  pir_channels = [25, 11] # pir receives and outputs 5v
+  pir_channels = [25, 9] # pir receives and outputs 5v
   gpio_path = "/sys/class/gpio"
   secret_path = "/home/haldor/.open-sesame"
   ds18b20_path = "/sys/devices/w1_bus_master1/28-0000050585f4/w1_slave"
