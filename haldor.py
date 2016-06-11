@@ -8,11 +8,11 @@ class Haldor(Daemon):
   """Watches the door and monitors various switches and motion via GPIO"""
 
   # TODO: enable these as configs passed to __init__
-  version = "0.0.4"
-  io_channels = [7, 8, 25, 9, 24]
-  io_names = {'Front Door': 7, 'Main Door': 8, 'Office Motion': 25, 'Shop Motion': 9, 'Open Switch': 24}
-  switch_channels = [7, 8, 24] # light switch and reed switch
-  flip_channels = [24] # switch is flipped around (1 means closed, 0 means open)
+  version = "0.0.5"
+  io_channels = [24, 27, 23, 25, 9]
+  io_names = {'Front Door': 24, 'Main Door': 27, 'Open Switch': 23, 'Office Motion': 25, 'Shop Motion': 9}
+  switch_channels = [24, 27, 23] # light switch and reed switch
+  flip_channels = [24, 27, 23] # switch is flipped around (1 means closed, 0 means open)
   pir_channels = [25, 9] # pir receives and outputs 5v
   gpio_path = "/sys/class/gpio"
   secret_path = "/home/haldor/.open-sesame"
@@ -50,7 +50,7 @@ class Haldor(Daemon):
     # pull up for switches
     # we'll need to flip it later
     for chan in Haldor.switch_channels:
-      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_NONE)
     
     # For pir sensor, it'll be connected to the 5V (with a voltage divider)
     for chan in Haldor.pir_channels:
@@ -65,7 +65,7 @@ class Haldor(Daemon):
     hasher.update(self.session)
     return hasher.hexdigest()
   
-  def notify(self, path, params):
+  def notify(self, path, paramse):
     # TODO: Check https certificate
     params['time'] = time.time()
     body = urllib.parse.urlencode(params).encode('utf-8')
