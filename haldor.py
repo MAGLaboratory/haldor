@@ -3,23 +3,30 @@ import time, signal, subprocess, http.client, urllib, hmac, hashlib, re
 #from functools import partial
 import RPi.GPIO as GPIO
 from daemon import Daemon
+from dataclasses import dataclass
+from dataclasses_json import dataclass_json
+from typing import List, Dict
 
+@dataclass_json
+@dataclass
 class Haldor(Daemon):
   """Watches the door and monitors various switches and motion via GPIO"""
 
-  # TODO: enable these as configs passed to __init__
-  version = "0.0.6"
-  io_channels = [8, 11, 25, 9, 10]
-  io_names = {'Front Door': 8, 'Main Door': 11, 'Open Switch': 25, 'Office Motion': 9, 'Shop Motion': 10}
-  switch_channels = [8, 11, 25] # light switch and reed switch
-  flip_channels = [25] # switch is flipped around (1 means closed, 0 means open)
-  pir_channels = [9, 10] # pir receives and outputs 5v
-  gpio_path = "/sys/class/gpio"
-  secret_path = "/home/haldor/.open-sesame"
-  ds18b20_path = "/sys/devices/w1_bus_master1/28-0000050585f4/w1_slave"
-  host = "www.maglaboratory.org"
-  use_ssl = True
-  checkup_interval = 300
+  # dataclass variable declaration
+  version = '2020'
+  name: str
+  description: str
+  io_channels: List[int]
+  io_names: Dict[str, int]
+  switch_channels: List[int]
+  flip_channels: List[int]
+  pir_channels: List[int]
+  gpio_path: str
+  secret_path: str
+  ds18b20_path: str
+  host: str
+  use_ssl: bool
+  checkup_interval: int
   
   # TODO: Check all the GPIOs
   # 7 -> Front Door
@@ -30,7 +37,7 @@ class Haldor(Daemon):
   
   def get_secret(self):
     if len(self.secret) <= 0:
-      file = open(Haldor.secret_path, 'rb')
+      file = open(self.secret_path, 'rb')
       self.secret = file.read()
       file.close
     
@@ -40,21 +47,21 @@ class Haldor(Daemon):
     GPIO.setmode(GPIO.BCM)
   
   def listen_channels(self):
-    for chan in Haldor.switch_channels:
+    for chan in self.switch_channels:
       GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
       
-    for chan in Haldor.pir_channels:
+    for chan in self.pir_channels:
       GPIO.add_event_detect(chan, GPIO.RISING, callback=self.event_checkup, bouncetime=800)
   
   def direct_channels(self):
     # pull up for switches
     # we'll need to flip it later
-    for chan in Haldor.switch_channels:
-      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    for chan in self.switch_channels:
+      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
     
     # For pir sensor, it'll be connected to the 5V (with a voltage divider)
-    for chan in Haldor.pir_channels:
-      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    for chan in self.pir_channels:
+      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
   
   def enable_gpio(self):
     self.export_channels()
@@ -72,15 +79,15 @@ class Haldor(Daemon):
     
     headers = {"Content-Type": "application/x-www-form-urlencoded",
       "Accept": "text/plain",
-      "X-Haldor": Haldor.version,
+      "X-Haldor": self.version,
       "X-Session": self.session,
       "X-Checksum": self.notify_hash(body)
       }
     conn = None
-    if Haldor.use_ssl:
-      conn = http.client.HTTPSConnection(Haldor.host)
+    if self.use_ssl:
+      conn = http.client.HTTPSConnection(self.host)
     else:
-      conn = http.client.HTTPConnection(Haldor.host)
+      conn = http.client.HTTPConnection(self.host)
     conn.request("POST", "/haldor/{0}".format(path), body, headers)
     print("Notified {0}".format(path))
     return conn.getresponse()
@@ -94,7 +101,7 @@ class Haldor(Daemon):
     print("Bootup:")
     
     try:
-      therm = subprocess.check_output(["cat", Haldor.ds18b20_path])
+      therm = subprocess.check_output(["cat", self.ds18b20_path])
     except:
       print("\tw1 read error")
     
@@ -115,22 +122,32 @@ class Haldor(Daemon):
       print("\tmy ip read error")
     
     try:
-      local_ip = subprocess.check_output(["/home/haldor/haldor/local_ip.sh"])
+      local_ip = subprocess.check_output(["/home/brandon/haldor/local_ip.sh"])
     except:
       print("\tlocal ip read error")
+
+    boot_checks = {}
+    boot_checks['uptime'] = uptime
+    boot_checks['uname'] = uname
+    boot_checks['ifconfig_eth0'] = if_eth0
+    boot_checks['thermal'] = therm
+    boot_checks['my_ip'] = my_ip
+    boot_checks['local_ip'] = local_ip
   
     try:
-      resp = self.notify('bootup', {'uptime': uptime, 'uname': uname, 'ifconfig_eth0': if_eth0, 'thermal': therm, 'my_ip': my_ip, 'local_ip': local_ip})
+      resp = self.notify('bootup', boot_checks)
       self.session = resp.read()
       print("Bootup Complete: {0}".format(self.session))
     except:
       # TODO: Error handling
-      print("Bootup ERROR")
+      print("Bootup ERROR".format(self.session))
       pass
   
   
   def bootup(self):
-    print("Bootup.")
+    print("Bootup sequence called.")
+    # invert dictionary for reporting
+    self.name_ios = {v: k for k, v in self.io_names.items()}
     self.secret = ""
     self.session = "".encode('utf-8')
     self.enable_gpio()
@@ -140,7 +157,7 @@ class Haldor(Daemon):
   def read_gpio(self, chan):
     value = '-1'
     try:
-      if chan in Haldor.flip_channels:
+      if chan in self.flip_channels:
         # For door switch, active high (1) means we're in the OFF position
         # Flip it so a 1 means we're ON
         if GPIO.input(chan) == 0:
@@ -155,7 +172,7 @@ class Haldor(Daemon):
     return value
   
   def check_gpios(self, gpios):
-    for name, chan in iter(Haldor.io_names.items()):
+    for name, chan in iter(self.io_names.items()):
       gpios[name] = self.read_gpio(chan)
     
     return gpios
@@ -163,7 +180,7 @@ class Haldor(Daemon):
   def check_temp(self):
     value = ""
     try:
-      temp = subprocess.check_output(["cat", Haldor.ds18b20_path])
+      temp = subprocess.check_output(["cat", self.ds18b20_path])
       match = re.search('t=(\d+)', temp.decode('utf-8'))
       value = match.group(1)
     except:
@@ -171,16 +188,13 @@ class Haldor(Daemon):
     
     return value
   
-  def notify_checkup(self, checks):
-    self.pings+=1
-    resp = self.notify('checkup', checks)
-    print(resp.read())
-  
   def checkup(self):
     print("Checkup.")
     checks = {}
     
+    self.pings+=1
     if(self.pings % 100 == 0):
+      self.pings = 0
       try:
         my_ip = subprocess.check_output(["/usr/bin/curl", "-s", "http://whatismyip.akamai.com/"])
         checks['my_ip'] = my_ip
@@ -188,7 +202,7 @@ class Haldor(Daemon):
         print("\tmy ip read error")
       
       try:
-        local_ip = subprocess.check_output(["/home/haldor/haldor/local_ip.sh"])
+        local_ip = subprocess.check_output(["/home/brandon/haldor/local_ip.sh"])
         checks['local_ip'] = local_ip
       except:
         print("\tlocal ip read error")
@@ -196,11 +210,15 @@ class Haldor(Daemon):
     self.check_gpios(checks)
     checks['Temperature'] = self.check_temp()
     print(checks)
-    self.notify_checkup(checks)
+    resp = self.notify('checkup', checks)
+    print(resp.read())
   
   def event_checkup(self, channel):
-    print("Event caught for {0}".format(channel))
-    self.checkup()
+    checks = {}
+    print("Event caught for {0}".format(self.name_ios[channel]))
+    checks[self.name_ios[channel]] = self.read_gpio(channel)
+    resp = self.notify('checkup', checks)
+    print(resp.read())
   
   def run(self):
     self.bootup()
@@ -208,7 +226,7 @@ class Haldor(Daemon):
     
     while True:
       self.checkup()
-      time.sleep(Haldor.checkup_interval)
+      time.sleep(self.checkup_interval)
       # Threaded event detection will execute whenever it detects a change.
       # This main loop will sleep and send data every 5 minutes regardless of how often stuff changes
       

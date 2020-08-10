@@ -5,14 +5,17 @@
 """Generic linux daemon base class for python 3.x."""
 
 import sys, os, time, atexit, signal
+from dataclasses import dataclass
+from dataclasses_json import dataclass_json
 
+@dataclass_json
+@dataclass
 class Daemon:
 	"""A generic daemon class.
 
 	Usage: subclass the daemon class and override the run() method."""
+	pidfile: str
 
-	def __init__(self, pidfile): self.pidfile = pidfile
-	
 	def daemonize(self):
 		"""Deamonize class. UNIX double fork mechanism."""
 

@@ -1,0 +1,22 @@
+{
+	"name": "Haldor",
+	"description": "This is the Haldor configuration file.",
+	"pidfile":"/tmp/haldor.pid",
+	"io_channels": [8, 11, 25, 9, 10],
+	"io_names": {
+		"Front Door": 8,
+		"Pod Bay Door": 11,
+		"Open Switch": 25,
+		"Office Motion": 9,
+		"Shop Motion": 10
+	},
+	"switch_channels": [8, 11, 25],
+	"flip_channels": [25],
+	"pir_channels": [9, 10],
+	"gpio_path": "/sys/class/gpio",
+	"secret_path": "/home/haldor/haldor/.open-sesame",
+	"ds18b20_path": "/sys/devices/w1_bus_master1/28-00da18b20000/w1_slave",
+	"host": "my_host",
+	"use_ssl": false,
+	"checkup_interval": 300
+}

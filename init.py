@@ -8,23 +8,10 @@ if __name__ != "__main__":
   print("This must be executed directly.")
   sys.exit(3)
 
-if None != os.getenv('HALDOR_HOST'):
-  Haldor.host = os.getenv('HALDOR_HOST')
+config = open("haldor_config.json", "r")
+daemon = Haldor.from_json(config.read())
+config.close()
 
-if None != os.getenv('HALDOR_GPIO_PATH'):
-  Haldor.gpio_path = os.getenv('HALDOR_GPIO_PATH')
-
-if None != os.getenv('HALDOR_SECRET_PATH'):
-  Haldor.secret_path = os.getenv('HALDOR_SECRET_PATH')
-
-if None != os.getenv('HALDOR_NOSSL'):
-  Haldor.use_ssl = False
-  
-if None != os.getenv('HALDOR_DS18B20'):
-  Haldor.ds18b20_path = os.getenv('HALDOR_DS18B20')
-
-
-daemon = Haldor('/tmp/haldor.pid')
 if len(sys.argv) == 2:
   if 'start' == sys.argv[1]:
     print("Starting...")
@@ -40,6 +27,8 @@ if len(sys.argv) == 2:
   elif 'listenall' == sys.argv[1]:
     la_daemon = GpioListener('/tmp/listenall.pid')
     la_daemon.run()
+  elif 'nodaemon' == sys.argv[1]:
+    daemon.run()
   else:
     print("Unknown command")
     sys.exit(2)
