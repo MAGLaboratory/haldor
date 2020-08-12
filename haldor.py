@@ -93,47 +93,36 @@ class Haldor(Daemon):
     return conn.getresponse()
   
   def notify_bootup(self):
-    uptime = ""
-    uname = ""
-    if_eth0 = ""
-    therm = ""
-  
+    boot_checks = {}
+
     print("Bootup:")
     
     try:
-      therm = subprocess.check_output(["cat", self.ds18b20_path])
+      boot_checks['thermal'] = subprocess.check_output(["cat", self.ds18b20_path])
     except:
       print("\tw1 read error")
     
     try:
-      uptime = subprocess.check_output("uptime")
-      uname = subprocess.check_output(["uname", "-a"])
+      boot_checks['uptime'] = subprocess.check_output("uptime")
+      boot_checks['uname'] = subprocess.check_output(["uname", "-a"])
     except:
       print("\tuptime/uname read error")
     
     try:
-      if_eth0 = subprocess.check_output(["/sbin/ifconfig", "eth0"])
+      boot_checks['ifconfig_eth0'] = subprocess.check_output(["/sbin/ifconfig", "eth0"])
     except:
       print("\teth0 read error")
     
     try:
-      my_ip = subprocess.check_output(["/usr/bin/curl", "-s", "http://whatismyip.akamai.com/"])
+      boot_checks['my_ip'] = subprocess.check_output(["/usr/bin/curl", "-s", "http://whatismyip.akamai.com/"])
     except:
       print("\tmy ip read error")
     
     try:
-      local_ip = subprocess.check_output(["/home/brandon/haldor/local_ip.sh"])
+      boot_checks['local_ip'] = subprocess.check_output(["/home/brandon/haldor/local_ip.sh"])
     except:
       print("\tlocal ip read error")
 
-    boot_checks = {}
-    boot_checks['uptime'] = uptime
-    boot_checks['uname'] = uname
-    boot_checks['ifconfig_eth0'] = if_eth0
-    boot_checks['thermal'] = therm
-    boot_checks['my_ip'] = my_ip
-    boot_checks['local_ip'] = local_ip
-  
     try:
       resp = self.notify('bootup', boot_checks)
       self.session = resp.read()
