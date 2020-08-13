@@ -15,7 +15,7 @@ mqtt_ok = 0
 class HalWrap(Daemon):
   def run(self):
     internal = Haldor()
-    config = open("haldor_config.json", "r")
+    config = open("/home/brandon/haldor/haldor_config.json", "r")
     internal.data = Haldor.data.from_json(config.read())
     config.close()
 
