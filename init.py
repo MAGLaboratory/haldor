@@ -1,7 +1,7 @@
 #!/usr/bin/env python
  
 import sys, os
-from haldor import HalWrap
+from haldor import HalDaemon
 from gpio_listener import GpioListener
 
 if __name__ != "__main__":
@@ -9,7 +9,7 @@ if __name__ != "__main__":
   sys.exit(3)
 
 config = open("haldor_config.json", "r")
-daemon = HalWrap.from_json(config.read())
+daemon = HalDaemon.from_json(config.read())
 config.close()
 
 if len(sys.argv) == 2:

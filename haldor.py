@@ -5,21 +5,23 @@ import RPi.GPIO as GPIO
 from daemon import Daemon
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
-from typing import List, Dict
+from typing import *
 
-checkup_request = 0
-mqtt_ok = 0
+class HalDaemon(Daemon):
+  def run(self):
+    haldor = Haldor()
+    config = open("/home/brandon/haldor/haldor_config.json", "r")
+    haldor.data = Haldor.data.from_json(config.read())
+    config.close()
+
+    haldor.run()
 
 @dataclass_json
 @dataclass
-class HalWrap(Daemon):
-  def run(self):
-    internal = Haldor()
-    config = open("/home/brandon/haldor/haldor_config.json", "r")
-    internal.data = Haldor.data.from_json(config.read())
-    config.close()
-
-    internal.run()
+class Acquisition:
+    name: str
+    acType: str
+    acObject: Union[List[str], int]
 
 class Haldor(mqtt.Client):
   """Watches the door and monitors various switches and motion via GPIO"""
@@ -31,11 +33,7 @@ class Haldor(mqtt.Client):
   class data:
     name: str
     description: str
-    io_channels: List[int]
-    io_names: Dict[str, int]
-    switch_channels: List[int]
-    flip_channels: List[int]
-    pir_channels: List[int]
+    acq_io: List[Acquisition]
     gpio_path: str
     secret_path: str
     ds18b20_path: str
@@ -52,7 +50,7 @@ class Haldor(mqtt.Client):
   
   def connect_func(self, client, userdata, flags, rc):
     print("Connected: " + rc)
-    client.subscribe("topic/checkup_req")
+    client.subscribe("reporter/checkup_req")
 
   def on_message(self, client, userdata, message):
     print("Checkup received.")
@@ -70,20 +68,25 @@ class Haldor(mqtt.Client):
     GPIO.setmode(GPIO.BCM)
   
   def listen_channels(self):
-    for chan in self.data.switch_channels:
+    for chan in self.data.switch_channels.values():
       GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
       
-    for chan in self.data.pir_channels:
+    for chan in self.data.flip_channels.values():
+      GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
+
+    for chan in self.data.pir_channels.values():
       GPIO.add_event_detect(chan, GPIO.RISING, callback=self.event_checkup, bouncetime=800)
   
   def direct_channels(self):
     # pull up for switches
     # we'll need to flip it later
-    for chan in self.data.switch_channels:
+    for chan in self.data.switch_channels.values():
       GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
     
-    # For pir sensor, it'll be connected to the 5V (with a voltage divider)
-    for chan in self.data.pir_channels:
+    for chan in self.data.flip_channels.values():
+      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+    for chan in self.data.pir_channels.values():
       GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
   
   def enable_gpio(self):
@@ -98,10 +101,12 @@ class Haldor(mqtt.Client):
   def notify(self, path, params):
     # TODO: Check https certificate
     params['time'] = str(time.time())
+    print (params)
     body = urllib.parse.urlencode(params).encode('utf-8')
     
-    self.publish("topic/haldor/{0}".format(path), json.dumps(params))
-    print("Notified {0}".format(path))
+    topic = self.data.name + '/' + path
+    self.publish(topic, json.dumps(params))
+    print("Published " + topic)
   
   def notify_bootup(self):
     boot_checks = {}
@@ -125,11 +130,6 @@ class Haldor(mqtt.Client):
       print("\teth0 read error")
     
     try:
-      boot_checks['my_ip'] = subprocess.check_output(["/usr/bin/curl", "-s", "http://whatismyip.akamai.com/"]).decode('utf-8')
-    except:
-      print("\tmy ip read error")
-    
-    try:
       boot_checks['local_ip'] = subprocess.check_output(["/home/brandon/haldor/local_ip.sh"]).decode('utf-8')
     except:
       print("\tlocal ip read error")
@@ -138,31 +138,38 @@ class Haldor(mqtt.Client):
   
   def bootup(self):
     print("Bootup sequence called.")
+    # sort GPIOs
+    self.data.switch_channels = {}
+    self.data.flip_channels = {}
+    self.data.pir_channels = {}
+    self.data.name_ios = {}
+    for gpio in self.data.acq_io:
+      if gpio.acType == "SW":
+        self.data.switch_channels.update({gpio.name : gpio.acObject})
+        self.data.name_ios.update({gpio.acObject : gpio.name})
+      if gpio.acType == "SW_INV":
+        self.data.flip_channels.update({gpio.name : gpio.acObject})
+        self.data.name_ios.update({gpio.acObject : gpio.name})
+      if gpio.acType == "PIR":
+        self.data.pir_channels.update({gpio.name : gpio.acObject})
+        self.data.name_ios.update({gpio.acObject : gpio.name})
+
     # invert dictionary for reporting
-    self.data.name_ios = {v: k for k, v in self.data.io_names.items()}
     self.enable_gpio()
     self.notify_bootup()
     self.pings = 0
   
   def read_gpio(self, chan):
-    value = '-1'
-    try:
-      if chan in self.data.flip_channels:
-        # For door switch, active high (1) means we're in the OFF position
-        # Flip it so a 1 means we're ON
-        if GPIO.input(chan) == 0:
-          value = 1
-        else:
-          value = 0
-      else:
-        value = GPIO.input(chan)
-    except:
-      value = '-2'
+    value = GPIO.input(chan)
 
     return value
   
   def check_gpios(self, gpios):
-    for name, chan in iter(self.data.io_names.items()):
+    for name, chan in self.data.switch_channels.items():
+      gpios[name] = self.read_gpio(chan)
+    for name, chan in self.data.flip_channels.items():
+      gpios[name] = int(not self.read_gpio(chan))
+    for name, chan in self.data.pir_channels.items():
       gpios[name] = self.read_gpio(chan)
     
     return gpios
@@ -204,22 +211,22 @@ class Haldor(mqtt.Client):
   
   def event_checkup(self, channel):
     checks = {}
-    print("Event caught for {0}".format(self.data.name_ios[channel]))
-    checks[self.data.name_ios[channel]] = self.read_gpio(channel)
+    name = self.data.name_ios[channel]
+    print("Event caught for {0}".format(name))
+    if name in self.data.flip_channels:
+      checks[name] = int(not self.read_gpio(channel))
+    else:
+      checks[name] = self.read_gpio(channel)
     self.notify('checkup', checks)
   
   def run(self):
     self.connect("daisy", 1883, 60)
-    self.subscribe("topic/checkup_req")
+    self.subscribe("reporter/checkup_req")
     self.bootup()
     self.listen_channels()
     
     while True:
       self.loop_forever()
-      global checkup_request
-      if (checkup_request):
-        self.checkup()
-        checkup_request = 0
       # Threaded event detection will execute whenever it detects a change.
       # This main loop will sleep and send data every 5 minutes regardless of how often stuff changes
       
