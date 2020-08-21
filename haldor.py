@@ -1,5 +1,6 @@
 import paho.mqtt.client as mqtt
 import time, signal, subprocess, http.client, urllib, hmac, hashlib, re, json
+import traceback, os
 #from functools import partial
 import RPi.GPIO as GPIO
 from daemon import Daemon
@@ -33,13 +34,12 @@ class Haldor(mqtt.Client):
   class data:
     name: str
     description: str
+    boot_check_list: Dict[str, List[str]]
     acq_io: List[Acquisition]
     gpio_path: str
-    secret_path: str
     ds18b20_path: str
-    host: str
-    use_ssl: bool
-    checkup_interval: int
+    mqtt_broker: str
+    mqtt_port: int
   
   # TODO: Check all the GPIOs
   # 7 -> Front Door
@@ -48,9 +48,18 @@ class Haldor(mqtt.Client):
   # 11 - Shop Motion
   # 24 - Switch? "plus30Mins" in old app...
   
-  def connect_func(self, client, userdata, flags, rc):
-    print("Connected: " + rc)
-    client.subscribe("reporter/checkup_req")
+  def on_log(self, client, userdata, level, buff):
+    if level != mqtt.MQTT_LOG_DEBUG:
+      print (level)
+      print(buff)
+    if level == mqtt.MQTT_LOG_ERR:
+      print ("error handler")
+      traceback.print_exc()
+      os._exit(1)
+
+  def on_connect(self, client, userdata, flags, rc):
+    print("Connected: " + str(rc))
+    self.subscribe("reporter/checkup_req")
 
   def on_message(self, client, userdata, message):
     print("Checkup received.")
@@ -113,26 +122,8 @@ class Haldor(mqtt.Client):
 
     print("Bootup:")
     
-    try:
-      boot_checks['thermal'] = subprocess.check_output(["cat", self.data.ds18b20_path]).decode('utf-8')
-    except:
-      print("\tw1 read error")
-    
-    try:
-      boot_checks['uptime'] = subprocess.check_output("uptime").decode('utf-8')
-      boot_checks['uname'] = subprocess.check_output(["uname", "-a"]).decode('utf-8')
-    except:
-      print("\tuptime/uname read error")
-    
-    try:
-      boot_checks['ifconfig_eth0'] = subprocess.check_output(["/sbin/ifconfig", "eth0"]).decode('utf-8')
-    except:
-      print("\teth0 read error")
-    
-    try:
-      boot_checks['local_ip'] = subprocess.check_output(["/home/brandon/haldor/local_ip.sh"]).decode('utf-8')
-    except:
-      print("\tlocal ip read error")
+    for bc_name, bc_cmd in self.data.boot_check_list.items():
+        boot_checks[bc_name] = subprocess.check_output(bc_cmd).decode('utf-8')
 
     self.notify('bootup', boot_checks)
   
@@ -206,7 +197,6 @@ class Haldor(mqtt.Client):
     
     self.check_gpios(checks)
     checks['Temperature'] = self.check_temp()
-    print(checks)
     self.notify('checkup', checks)
   
   def event_checkup(self, channel):
@@ -220,8 +210,7 @@ class Haldor(mqtt.Client):
     self.notify('checkup', checks)
   
   def run(self):
-    self.connect("daisy", 1883, 60)
-    self.subscribe("reporter/checkup_req")
+    self.connect(self.data.mqtt_broker, self.data.mqtt_port, 60)
     self.bootup()
     self.listen_channels()
     
