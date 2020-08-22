@@ -1,7 +1,7 @@
 #!/usr/bin/env python
  
 import sys, os
-from h_datacollector import HDCDaemon
+from hdc import HDCDaemon
 from gpio_listener import GpioListener
 
 if __name__ != "__main__":
