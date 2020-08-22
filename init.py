@@ -1,15 +1,15 @@
 #!/usr/bin/env python
  
 import sys, os
-from haldor import HalDaemon
+from h_datacollector import HDCDaemon
 from gpio_listener import GpioListener
 
 if __name__ != "__main__":
   print("This must be executed directly.")
   sys.exit(3)
 
-config = open("haldor_config.json", "r")
-daemon = HalDaemon.from_json(config.read())
+config = open("hdc_config.json", "r")
+daemon = HDCDaemon.from_json(config.read())
 config.close()
 
 if len(sys.argv) == 2:

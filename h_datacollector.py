@@ -8,14 +8,15 @@ from dataclasses import dataclass
 from dataclasses_json import dataclass_json
 from typing import *
 
-class HalDaemon(Daemon):
+class HDCDaemon(Daemon):
   def run(self):
-    haldor = Haldor()
-    config = open("/home/brandon/haldor/haldor_config.json", "r")
-    haldor.data = Haldor.data.from_json(config.read())
+    h_datacollector = HDC()
+    my_path = os.path.dirname(os.path.abspath(__file__))
+    config = open(my_path + "/hdc_config.json", "r")
+    h_datacollector.data = HDC.data.from_json(config.read())
     config.close()
 
-    haldor.run()
+    h_datacollector.run()
 
 @dataclass_json
 @dataclass
@@ -24,7 +25,7 @@ class Acquisition:
     acType: str
     acObject: Union[List[str], int]
 
-class Haldor(mqtt.Client):
+class HDC(mqtt.Client):
   """Watches the door and monitors various switches and motion via GPIO"""
 
   version = '2020'
