@@ -1,7 +1,13 @@
 {
-	"name": "Haldor",
+	"name": "haldor",
 	"description": "This is the Haldor configuration file.",
-	"pidfile":"/tmp/haldor.pid",
+	"boot_check_list": {
+		"Haldor CPU Temp": ["cat /sys/class/thermal/thermal_zone0/temp | tr -d '\\n'"],
+		"Haldor Uptime": ["uptime | tr -d '\\n'"],
+		"Haldor Local IP": ["/sbin/ifconfig eth0 | grep inet | awk '{ print $2 }' | cut -d: -f2 | tr -d '\\n'"],
+		"Haldor uname": ["uname -a | tr -d '\\n'"],
+		"ifconfig_eth0": ["/sbin/ifconfig", "eth0"]
+	},
 	"acq_io":[
 		{
 			"name": "Front Door", 
@@ -29,15 +35,15 @@
 			"acObject": 10
 		},
 		{
-			"name": "Temperature",
+			"name": "Bay Temp",
 			"acType": "TEMP",
 			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
 		}
 	],
+	"long_checkup_freq": 10,
+	"long_checkup_leng": 3,
+	"pidfile":"/tmp/haldor.pid",
 	"gpio_path": "/sys/class/gpio",
-	"secret_path": "/home/haldor/haldor/.open-sesame",
-	"ds18b20_path": "/sys/devices/w1_bus_master1/28-00da18b20000/w1_slave",
-	"host": "my_host",
-	"use_ssl": false,
-	"checkup_interval": 300
+	"mqtt_broker": "daisy",
+	"mqtt_port": 1883
 }

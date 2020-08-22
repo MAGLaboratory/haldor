@@ -36,17 +36,11 @@ class Haldor(mqtt.Client):
     description: str
     boot_check_list: Dict[str, List[str]]
     acq_io: List[Acquisition]
+    long_checkup_freq: int
+    long_checkup_leng: int
     gpio_path: str
-    ds18b20_path: str
     mqtt_broker: str
     mqtt_port: int
-  
-  # TODO: Check all the GPIOs
-  # 7 -> Front Door
-  # 8 - Main Door
-  # 25 - Office Motion
-  # 11 - Shop Motion
-  # 24 - Switch? "plus30Mins" in old app...
   
   def on_log(self, client, userdata, level, buff):
     if level != mqtt.MQTT_LOG_DEBUG:
@@ -123,7 +117,7 @@ class Haldor(mqtt.Client):
     print("Bootup:")
     
     for bc_name, bc_cmd in self.data.boot_check_list.items():
-        boot_checks[bc_name] = subprocess.check_output(bc_cmd).decode('utf-8')
+        boot_checks[bc_name] = subprocess.check_output(bc_cmd, shell=True).decode('utf-8')
 
     self.notify('bootup', boot_checks)
   
@@ -134,16 +128,19 @@ class Haldor(mqtt.Client):
     self.data.flip_channels = {}
     self.data.pir_channels = {}
     self.data.name_ios = {}
-    for gpio in self.data.acq_io:
-      if gpio.acType == "SW":
-        self.data.switch_channels.update({gpio.name : gpio.acObject})
-        self.data.name_ios.update({gpio.acObject : gpio.name})
-      if gpio.acType == "SW_INV":
-        self.data.flip_channels.update({gpio.name : gpio.acObject})
-        self.data.name_ios.update({gpio.acObject : gpio.name})
-      if gpio.acType == "PIR":
-        self.data.pir_channels.update({gpio.name : gpio.acObject})
-        self.data.name_ios.update({gpio.acObject : gpio.name})
+    self.data.temp_channels = {}
+    for acq in self.data.acq_io:
+      if acq.acType == "SW":
+        self.data.switch_channels.update({acq.name : acq.acObject})
+        self.data.name_ios.update({acq.acObject : acq.name})
+      if acq.acType == "SW_INV":
+        self.data.flip_channels.update({acq.name : acq.acObject})
+        self.data.name_ios.update({acq.acObject : acq.name})
+      if acq.acType == "PIR":
+        self.data.pir_channels.update({acq.name : acq.acObject})
+        self.data.name_ios.update({acq.acObject : acq.name})
+      if acq.acType == "TEMP":
+        self.data.temp_channels.update({acq.name : acq.acObject})
 
     # invert dictionary for reporting
     self.enable_gpio()
@@ -165,10 +162,10 @@ class Haldor(mqtt.Client):
     
     return gpios
     
-  def check_temp(self):
+  def check_temp(self, temp_path):
     value = ""
     try:
-      temp = subprocess.check_output(["cat", self.data.ds18b20_path])
+      temp = subprocess.check_output(["cat", temp_path])
       match = re.search('t=(\d+)', temp.decode('utf-8'))
       value = match.group(1)
     except:
@@ -181,22 +178,18 @@ class Haldor(mqtt.Client):
     checks = {}
     
     self.pings+=1
-    if(self.pings % 100 == 0):
+    if(self.pings % self.data.long_checkup_freq == 0):
       self.pings = 0
-      try:
-        my_ip = subprocess.check_output(["/usr/bin/curl", "-s", "http://whatismyip.akamai.com/"]).decode('utf-8')
-        checks['my_ip'] = my_ip
-      except:
-        print("\tmy ip read error")
-      
-      try:
-        local_ip = subprocess.check_output(["/home/brandon/haldor/local_ip.sh"]).decode('utf-8')
-        checks['local_ip'] = local_ip
-      except:
-        print("\tlocal ip read error")
+      i = 0
+      for check_name in self.data.boot_check_list:
+        i += 1
+        if i > self.data.long_checkup_leng:
+          break
+        checks[check_name] = subprocess.check_output(self.data.boot_check_list[check_name], shell=True).decode('utf-8')
     
     self.check_gpios(checks)
-    checks['Temperature'] = self.check_temp()
+    for ts_name, ts_path in self.data.temp_channels.items():
+      checks[ts_name] = self.check_temp(ts_path[0])
     self.notify('checkup', checks)
   
   def event_checkup(self, channel):
