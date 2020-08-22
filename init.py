@@ -8,7 +8,8 @@ if __name__ != "__main__":
   print("This must be executed directly.")
   sys.exit(3)
 
-config = open("hdc_config.json", "r")
+my_path = os.path.dirname(os.path.abspath(__file__))
+config = open(my_path + "/hdc_config.json", "r")
 daemon = HDCDaemon.from_json(config.read())
 config.close()
 
