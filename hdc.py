@@ -102,14 +102,13 @@ class HDC(mqtt.Client):
     hasher.update(self.session)
     return hasher.hexdigest()
   
-  def notify(self, path, params):
+  def notify(self, path, params, retain=False):
     # TODO: Check https certificate
     params['time'] = str(time.time())
     print (params)
-    body = urllib.parse.urlencode(params).encode('utf-8')
-    
+
     topic = self.data.name + '/' + path
-    self.publish(topic, json.dumps(params))
+    self.publish(topic, json.dumps(params), retain=retain)
     print("Published " + topic)
   
   def notify_bootup(self):
@@ -120,7 +119,7 @@ class HDC(mqtt.Client):
     for bc_name, bc_cmd in self.data.boot_check_list.items():
         boot_checks[bc_name] = subprocess.check_output(bc_cmd, shell=True).decode('utf-8')
 
-    self.notify('bootup', boot_checks)
+    self.notify('bootup', boot_checks, retain=True)
   
   def bootup(self):
     print("Bootup sequence called.")
@@ -201,7 +200,7 @@ class HDC(mqtt.Client):
       checks[name] = int(not self.read_gpio(channel))
     else:
       checks[name] = self.read_gpio(channel)
-    self.notify('checkup', checks)
+    self.notify('event', checks)
   
   def run(self):
     self.connect(self.data.mqtt_broker, self.data.mqtt_port, 60)
@@ -210,6 +209,4 @@ class HDC(mqtt.Client):
     
     while True:
       self.loop_forever()
-      # Threaded event detection will execute whenever it detects a change.
-      # This main loop will sleep and send data every 5 minutes regardless of how often stuff changes
       
