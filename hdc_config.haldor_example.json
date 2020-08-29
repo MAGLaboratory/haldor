@@ -5,8 +5,10 @@
 		"Haldor CPU Temp": ["cat /sys/class/thermal/thermal_zone0/temp | tr -d '\\n'"],
 		"Haldor Uptime": ["uptime | tr -d '\\n'"],
 		"Haldor Local IP": ["/sbin/ifconfig eth0 | grep inet | awk '{ print $2 }' | cut -d: -f2 | tr -d '\\n'"],
+		"Haldor Disk Usage": ["df -h | grep -v tmpfs | tail -n +2"],
+		"Haldor Memory Usage": ["free -h"],
 		"Haldor uname": ["uname -a | tr -d '\\n'"],
-		"ifconfig_eth0": ["/sbin/ifconfig", "eth0"]
+		"Haldor ifconfig_eth0": ["/sbin/ifconfig", "eth0"]
 	},
 	"acq_io":[
 		{
@@ -41,7 +43,7 @@
 		}
 	],
 	"long_checkup_freq": 10,
-	"long_checkup_leng": 3,
+	"long_checkup_leng": 5,
 	"pidfile":"/tmp/haldor.pid",
 	"gpio_path": "/sys/class/gpio",
 	"mqtt_broker": "daisy",
