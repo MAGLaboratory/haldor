@@ -2,7 +2,6 @@
  
 import sys, os
 from hdc import HDCDaemon
-from gpio_listener import GpioListener
 
 if __name__ != "__main__":
   print("This must be executed directly.")
@@ -25,9 +24,6 @@ if len(sys.argv) == 2:
     daemon.restart()
   elif 'testrun' == sys.argv[1]:
     daemon.run()
-  elif 'listenall' == sys.argv[1]:
-    la_daemon = GpioListener('/tmp/listenall.pid')
-    la_daemon.run()
   elif 'nodaemon' == sys.argv[1]:
     daemon.run()
   else:

@@ -2,11 +2,12 @@ import paho.mqtt.client as mqtt
 import time, signal, subprocess, http.client, urllib, hmac, hashlib, re, json
 import traceback, os
 #from functools import partial
-import RPi.GPIO as GPIO
 from daemon import Daemon
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
 from typing import *
+from multitimer import MultiTimer
+from confirmation_threshold import confirmation_threshold
 
 class HDCDaemon(Daemon):
   def run(self):
@@ -60,6 +61,42 @@ class HDC(mqtt.Client):
     print("Checkup received.")
     self.checkup()
 
+  def enable_gpio(self):
+    global GPIO
+    print(self.data.gpio_path)
+    if not self.data.gpio_path:
+      import orangepi.one
+      import OPi.GPIO as GPIO
+      GPIO.setmode(orangepi.one.BOARD)
+      GPIO.setwarnings(False)
+    else:
+      import RPi.GPIO as GPIO
+      GPIO.setmode(GPIO.BCM)
+
+    # sort GPIOs
+    self.data.switch_channels = {}
+    self.data.flip_channels = {}
+    self.data.pir_channels = {}
+    self.data.last_pir_state = {}
+    self.data.ct_ios = {}
+    self.data.temp_channels = {}
+    for acq in self.data.acq_io:
+      if acq.acType == "SW":
+        GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        self.data.switch_channels.update({acq.name : acq.acObject})
+        self.data.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
+      if acq.acType == "SW_INV":
+        GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        self.data.flip_channels.update({acq.name : acq.acObject})
+        self.data.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
+      if acq.acType == "PIR":
+        GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        self.data.pir_channels.update({acq.name : acq.acObject})
+        self.data.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
+        self.data.last_pir_state.update({acq.name : 0})
+      if acq.acType == "TEMP":
+        self.data.temp_channels.update({acq.name : acq.acObject})
+
   def get_secret(self):
     if len(self.secret) <= 0:
       file = open(self.data.secret_path, 'rb')
@@ -67,35 +104,6 @@ class HDC(mqtt.Client):
       file.close
     
     return self.secret
-  
-  def export_channels(self):
-    GPIO.setmode(GPIO.BCM)
-  
-  def listen_channels(self):
-    for chan in self.data.switch_channels.values():
-      GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
-      
-    for chan in self.data.flip_channels.values():
-      GPIO.add_event_detect(chan, GPIO.BOTH, callback=self.event_checkup, bouncetime=500)
-
-    for chan in self.data.pir_channels.values():
-      GPIO.add_event_detect(chan, GPIO.RISING, callback=self.event_checkup, bouncetime=800)
-  
-  def direct_channels(self):
-    # pull up for switches
-    # we'll need to flip it later
-    for chan in self.data.switch_channels.values():
-      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    
-    for chan in self.data.flip_channels.values():
-      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
-    for chan in self.data.pir_channels.values():
-      GPIO.setup(chan, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-  
-  def enable_gpio(self):
-    self.export_channels()
-    self.direct_channels()
   
   def notify_hash(self, body):
     hasher = hmac.new(self.get_secret(), body, hashlib.sha256)
@@ -123,44 +131,11 @@ class HDC(mqtt.Client):
   
   def bootup(self):
     print("Bootup sequence called.")
-    # sort GPIOs
-    self.data.switch_channels = {}
-    self.data.flip_channels = {}
-    self.data.pir_channels = {}
-    self.data.name_ios = {}
-    self.data.temp_channels = {}
-    for acq in self.data.acq_io:
-      if acq.acType == "SW":
-        self.data.switch_channels.update({acq.name : acq.acObject})
-        self.data.name_ios.update({acq.acObject : acq.name})
-      if acq.acType == "SW_INV":
-        self.data.flip_channels.update({acq.name : acq.acObject})
-        self.data.name_ios.update({acq.acObject : acq.name})
-      if acq.acType == "PIR":
-        self.data.pir_channels.update({acq.name : acq.acObject})
-        self.data.name_ios.update({acq.acObject : acq.name})
-      if acq.acType == "TEMP":
-        self.data.temp_channels.update({acq.name : acq.acObject})
 
     # invert dictionary for reporting
     self.enable_gpio()
     self.notify_bootup()
     self.pings = 0
-  
-  def read_gpio(self, chan):
-    value = GPIO.input(chan)
-
-    return value
-  
-  def check_gpios(self, gpios):
-    for name, chan in self.data.switch_channels.items():
-      gpios[name] = self.read_gpio(chan)
-    for name, chan in self.data.flip_channels.items():
-      gpios[name] = int(not self.read_gpio(chan))
-    for name, chan in self.data.pir_channels.items():
-      gpios[name] = self.read_gpio(chan)
-    
-    return gpios
     
   def check_temp(self, temp_path):
     value = ""
@@ -187,25 +162,42 @@ class HDC(mqtt.Client):
           break
         checks[check_name] = subprocess.check_output(self.data.boot_check_list[check_name], shell=True).decode('utf-8')
     
-    self.check_gpios(checks)
+    for name in self.data.switch_channels:
+      checks[name] = self.data.ct_ios[name].confirmed
+    for name in self.data.flip_channels:
+      checks[name] = self.data.ct_ios[name].confirmed
+    for name in self.data.pir_channels:
+      checks[name] = self.data.ct_ios[name].confirmed
+      self.data.last_pir_state[name] = checks[name]
     for ts_name, ts_path in self.data.temp_channels.items():
       checks[ts_name] = self.check_temp(ts_path[0])
     self.notify('checkup', checks)
   
-  def event_checkup(self, channel):
+  def timed_checkup(self):
     checks = {}
-    name = self.data.name_ios[channel]
-    print("Event caught for {0}".format(name))
-    if name in self.data.flip_channels:
-      checks[name] = int(not self.read_gpio(channel))
-    else:
-      checks[name] = self.read_gpio(channel)
-    self.notify('event', checks)
+    for name, chan in self.data.switch_channels.items():
+      result = self.data.ct_ios[name].update(GPIO.input(chan))
+      if result[0]:
+        checks[name] = result[1]
+    for name, chan in self.data.flip_channels.items():
+      result = self.data.ct_ios[name].update(int (not GPIO.input(chan)))
+      if result[0]:
+        checks[name] = result[1]
+    for name, chan in self.data.pir_channels.items():
+      result = self.data.ct_ios[name].update(GPIO.input(chan))
+      # PIR's are special because they like to be on and are only turned off during
+      # timed checkups
+      if result[0] and result[1] and not self.data.last_pir_state[name]:
+        checks[name] = result[1]
+        self.data.last_pir_state[name] = result[1]
+    if checks:
+      self.notify('event', checks)
   
   def run(self):
     self.connect(self.data.mqtt_broker, self.data.mqtt_port, 60)
     self.bootup()
-    self.listen_channels()
+    timer = MultiTimer(interval=5, function=self.timed_checkup)
+    timer.start()
     
     while True:
       self.loop_forever()
