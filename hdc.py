@@ -177,6 +177,7 @@ class HDC(mqtt.Client):
     checks = {}
     for name, chan in self.data.switch_channels.items():
       result = self.data.ct_ios[name].update(GPIO.input(chan))
+      # value confirmed
       if result[0]:
         checks[name] = result[1]
     for name, chan in self.data.flip_channels.items():
@@ -190,6 +191,7 @@ class HDC(mqtt.Client):
       if result[0] and result[1] and not self.data.last_pir_state[name]:
         checks[name] = result[1]
         self.data.last_pir_state[name] = result[1]
+    # notify if any values were changed
     if checks:
       self.notify('event', checks)
   
