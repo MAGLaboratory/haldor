@@ -136,6 +136,10 @@ class HDC(mqtt.Client):
     self.enable_gpio()
     self.notify_bootup()
     self.pings = 0
+
+    signal.signal(signal.SIGINT, self.signal_handler)
+    signal.signal(signal.SIGTERM, self.signal_handler)
+    self.running = True
     
   def check_temp(self, temp_path):
     value = ""
@@ -144,10 +148,14 @@ class HDC(mqtt.Client):
       match = re.search('t=(\d+)', temp.decode('utf-8'))
       value = match.group(1)
     except:
-      value = "--"
+      value = "XX"
     
     return value
-  
+ 
+  def signal_handler(self, signum, frame):
+    print("Caught a deadly signal!")
+    self.running = False
+
   def checkup(self):
     print("Checkup.")
     checks = {}
@@ -201,6 +209,8 @@ class HDC(mqtt.Client):
     timer = MultiTimer(interval=5, function=self.timed_checkup)
     timer.start()
     
-    while True:
-      self.loop_forever()
-      
+    while self.running:
+      self.loop()
+
+    timer.stop()
+    exit(0) 
