@@ -1,0 +1,57 @@
+{
+	"name": "haldor",
+	"description": "This is the Haldor configuration file.",
+	"boot_check_list": {
+		"Haldor CPU Temp": ["cat /sys/class/thermal/thermal_zone0/temp | tr -d '\\n'"],
+		"Haldor Uptime": ["uptime | tr -d '\\n'"],
+		"Haldor Local IP": ["/sbin/ifconfig eth0 | grep inet | awk '{ print $2 }' | cut -d: -f2 | tr -d '\\n'"],
+		"Haldor Disk Usage": ["df -h | grep -v tmpfs | tail -n +2"],
+		"Haldor Memory Usage": ["free -h"],
+		"Haldor uname": ["uname -a | tr -d '\\n'"],
+		"Haldor ifconfig_eth0": ["/sbin/ifconfig", "eth0"]
+	},
+	"acq_io":[
+		{
+			"name": "Front Door", 
+			"acType": "SW", 
+			"acObject": 8
+		},
+		{
+			"name": "Pod Bay Door", 
+			"acType": "SW", 
+			"acObject": 11
+		},
+		{
+			"name": "Open Switch", 
+			"acType": "SW_INV", 
+			"acObject": 25
+		},
+		{
+			"name": "Office Motion",
+			"acType": "PIR",
+			"acObject": 9
+		},
+		{
+			"name": "Shop Motion",
+			"acType": "PIR",
+			"acObject": 10
+		},
+		{
+			"name": "Bay Temp",
+			"acType": "TEMP",
+			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
+		},
+		{
+			"name": "Outdoor Temp",
+			"acType": "TEMP",
+			"acObject": ["/sys/devices/w1_bus_master1/28-01131a4462ac/w1_slave"]
+		}
+	],
+	"long_checkup_freq": 10,
+	"long_checkup_leng": 5,
+	"pidfile":"/tmp/haldor.pid",
+	"gpio_path": "/sys/class/gpio",
+	"mqtt_broker": "daisy",
+	"mqtt_port": 1883,
+	"mqtt_timeout": 60
+}

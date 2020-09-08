@@ -2,4 +2,5 @@
 *.swap
 .DS_Store
 testrun.sh
+haldor_config.json
 __pycache__

@@ -1,0 +1,52 @@
+{
+	"name": "daisy",
+	"description": "This is the Daisy configuration file.",
+	"boot_check_list": {
+		"Daisy CPU Temp": ["cat /sys/class/thermal/thermal_zone0/temp | tr -d '\\n'"],
+		"Daisy Uptime": ["uptime | tr -d '\\n'"],
+		"Daisy Local IP": ["/sbin/ifconfig eth0 | grep inet | awk '{ print $2 }' | cut -d: -f2 | tr -d '\\n'"],
+		"Daisy Disk Usage": ["df -h | grep -v tmpfs | tail -n +2"],
+		"Daisy Memory Usage": ["free -h"],
+		"Daisy uname": ["uname -a | tr -d '\\n'"],
+		"Daisy ifconfig_eth0": ["/sbin/ifconfig", "eth0"]
+	},
+	"acq_io":[
+		{
+			"name": "ConfRm Motion",
+			"acType": "PIR",
+			"acObject": 19
+		},
+		{
+			"name": "ElecRm Motion",
+			"acType": "PIR",
+			"acObject": 21
+		},
+		{
+			"name": "ShopB Motion",
+			"acType": "PIR",
+			"acObject": 23
+		},
+		{
+			"name": "ConfRm Temp",
+			"acType": "TEMP",
+			"acObject": ["/sys/devices/w1_bus_master1/28-01131a4e6092/w1_slave"]
+		},
+		{
+			"name": "ElecRm Temp",
+			"acType": "TEMP",
+			"acObject": ["/sys/devices/w1_bus_master1/28-01131a391258/w1_slave"]
+		},
+		{
+			"name": "ShopB Temp",
+			"acType": "TEMP",
+			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
+		}
+	],
+	"long_checkup_freq": 10,
+	"long_checkup_leng": 5,
+	"pidfile":"/tmp/daisy.pid",
+	"gpio_path": "",
+	"mqtt_broker": "daisy",
+	"mqtt_port": 1883,
+	"mqtt_timeout": 60
+}
