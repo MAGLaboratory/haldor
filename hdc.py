@@ -43,6 +43,7 @@ class HDC(mqtt.Client):
     gpio_path: str
     mqtt_broker: str
     mqtt_port: int
+    mqtt_timeout: int
   
   def on_log(self, client, userdata, level, buff):
     if level != mqtt.MQTT_LOG_DEBUG:
@@ -204,7 +205,7 @@ class HDC(mqtt.Client):
       self.notify('event', checks)
   
   def run(self):
-    self.connect(self.data.mqtt_broker, self.data.mqtt_port, 60)
+    self.connect(self.data.mqtt_broker, self.data.mqtt_port, self.data.mqtt_timeout)
     self.bootup()
     timer = MultiTimer(interval=5, function=self.timed_checkup)
     timer.start()

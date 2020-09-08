@@ -14,17 +14,17 @@
 		{
 			"name": "ConfRm Motion",
 			"acType": "PIR",
-			"acObject": 19
+			"acObject": 31
 		},
 		{
 			"name": "ElecRm Motion",
 			"acType": "PIR",
-			"acObject": 21
+			"acObject": 33
 		},
 		{
 			"name": "ShopB Motion",
 			"acType": "PIR",
-			"acObject": 23
+			"acObject": 35
 		},
 		{
 			"name": "ConfRm Temp",
@@ -42,11 +42,11 @@
 			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
 		}
 	],
-	"long_checkup_freq": 10,
+	"long_checkup_freq": 100,
 	"long_checkup_leng": 5,
 	"pidfile":"/tmp/daisy.pid",
 	"gpio_path": "",
-	"mqtt_broker": "daisy",
+	"mqtt_broker": "hal",
 	"mqtt_port": 1883,
 	"mqtt_timeout": 60
 }
