@@ -40,6 +40,11 @@
 			"name": "Bay Temp",
 			"acType": "TEMP",
 			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
+		},
+		{
+			"name": "Outdoor Temp",
+			"acType": "TEMP",
+			"acObject": ["/sys/devices/w1_bus_master1/28-01131a4462ac/w1_slave"]
 		}
 	],
 	"long_checkup_freq": 100,
