@@ -44,7 +44,8 @@ class HDC(mqtt.Client):
     mqtt_broker: str
     mqtt_port: int
     mqtt_timeout: int
-  
+
+  # overloaded MQTT functions from (mqtt.Client)
   def on_log(self, client, userdata, level, buff):
     if level != mqtt.MQTT_LOG_DEBUG:
       print (level)
@@ -52,7 +53,7 @@ class HDC(mqtt.Client):
     if level == mqtt.MQTT_LOG_ERR:
       print ("error handler")
       traceback.print_exc()
-      os._exit(1)
+      self.running = False;
 
   def on_connect(self, client, userdata, flags, rc):
     print("Connected: " + str(rc))
@@ -62,6 +63,11 @@ class HDC(mqtt.Client):
     print("Checkup received.")
     self.checkup()
 
+  def on_disconnect(self, client, userdata, rc):
+    print("Disconnected: " + str(rc))
+    self.running = False;
+
+  # HDC functions
   def enable_gpio(self):
     global GPIO
     print(self.data.gpio_path)
@@ -141,6 +147,7 @@ class HDC(mqtt.Client):
     signal.signal(signal.SIGINT, self.signal_handler)
     signal.signal(signal.SIGTERM, self.signal_handler)
     self.running = True
+    self.exiting = False
     
   def check_temp(self, temp_path):
     value = ""
@@ -156,6 +163,7 @@ class HDC(mqtt.Client):
   def signal_handler(self, signum, frame):
     print("Caught a deadly signal!")
     self.running = False
+    self.exiting = True
 
   def checkup(self):
     print("Checkup.")
@@ -205,13 +213,25 @@ class HDC(mqtt.Client):
       self.notify('event', checks)
   
   def run(self):
-    self.connect(self.data.mqtt_broker, self.data.mqtt_port, self.data.mqtt_timeout)
-    self.bootup()
-    timer = MultiTimer(interval=5, function=self.timed_checkup)
-    timer.start()
+    while True:
+      self.running = True
+      while self.running:
+        try:
+          self.connect(self.data.mqtt_broker, self.data.mqtt_port, self.data.mqtt_timeout)
+          self.bootup()
+          timer = MultiTimer(interval=5, function=self.timed_checkup)
+          timer.start()
     
-    while self.running:
-      self.loop()
+          while self.running:
+            self.loop()
 
-    timer.stop()
-    exit(0) 
+          timer.stop()
+          GPIO.cleanup()
+        except:
+          timer.stop()
+          GPIO.cleanup()
+          traceback.print_exc()
+          pass
+
+        if self.exiting:
+          exit(0) 
