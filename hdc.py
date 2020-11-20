@@ -154,7 +154,10 @@ class HDC(mqtt.Client):
     try:
       temp = subprocess.check_output(["cat", temp_path])
       match = re.search('t=(\d+)', temp.decode('utf-8'))
-      value = match.group(1)
+      if match:
+        value = match.group(1)
+      else:
+        value = "XX"
     except:
       value = "XX"
     
