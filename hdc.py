@@ -1,5 +1,5 @@
 import paho.mqtt.client as mqtt
-import time, signal, subprocess, http.client, urllib, hmac, hashlib, re, json
+import time, signal, subprocess, http.client, urllib, re, json
 import traceback, os
 #from functools import partial
 from daemon import Daemon
@@ -104,21 +104,7 @@ class HDC(mqtt.Client):
       if acq.acType == "TEMP":
         self.data.temp_channels.update({acq.name : acq.acObject})
 
-  def get_secret(self):
-    if len(self.secret) <= 0:
-      file = open(self.data.secret_path, 'rb')
-      self.secret = file.read()
-      file.close
-    
-    return self.secret
-  
-  def notify_hash(self, body):
-    hasher = hmac.new(self.get_secret(), body, hashlib.sha256)
-    hasher.update(self.session)
-    return hasher.hexdigest()
-  
   def notify(self, path, params, retain=False):
-    # TODO: Check https certificate
     params['time'] = str(time.time())
     print (params)
 
@@ -132,7 +118,10 @@ class HDC(mqtt.Client):
     print("Bootup:")
     
     for bc_name, bc_cmd in self.data.boot_check_list.items():
-        boot_checks[bc_name] = subprocess.check_output(bc_cmd, shell=True).decode('utf-8')
+        boot_checks[bc_name] = subprocess.check_output(
+                bc_cmd, 
+                shell=True
+        ).decode('utf-8')
 
     self.notify('bootup', boot_checks, retain=True)
   
@@ -175,12 +164,15 @@ class HDC(mqtt.Client):
     self.pings+=1
     if(self.pings % self.data.long_checkup_freq == 0):
       self.pings = 0
-      i = 0
-      for check_name in self.data.boot_check_list:
-        i += 1
-        if i > self.data.long_checkup_leng:
+      long_checkup_count = 0
+      for check_name, check_command in self.data.boot_check_list:
+        long_checkup_count += 1
+        if long_checkup_count > self.data.long_checkup_leng:
           break
-        checks[check_name] = subprocess.check_output(self.data.boot_check_list[check_name], shell=True).decode('utf-8')
+        checks[check_name] = subprocess.check_output(
+                check_command, 
+                shell=True
+        ).decode('utf-8')
     
     for name in self.data.switch_channels:
       checks[name] = self.data.ct_ios[name].confirmed
