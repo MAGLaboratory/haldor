@@ -34,7 +34,7 @@ class TempSensorPower:
     CHECK = 2
 
   state = PowerState.INIT
-  allowedRetarts = 1
+  allowedRestarts = 1
   restarts = 0
   broke = False
 
@@ -47,7 +47,7 @@ class TempSensorPower:
     elif self.state == self.PowerState.RESTART:
       self.state = self.PowerState.CHECK
     elif self.state == self.PowerState.CHECK:
-      if restarts < allowedRestarts:
+      if self.restarts < self.allowedRestarts:
         if self.broke:
           self.state = self.PowerState.RESTART
       if not self.broke:
@@ -58,7 +58,7 @@ class TempSensorPower:
     # output
     if self.state == self.PowerState.RESTART:
       power = False
-      restarts += 1
+      self.restarts += 1
     return power
 
 class HDC(mqtt.Client):
@@ -147,6 +147,7 @@ class HDC(mqtt.Client):
           self.runtime.temp_fault
           raise KeyError("Temperature sensor fault channel already allocated")
         except AttributeError:
+          print ("Creating Temperature Fault Runtime Objects")
           self.runtime.temp_fault = acq.acObject
           GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
           self.runtime.temp_fault_sm = confirmation_threshold(not GPIO.input(acq.acObject),3)
@@ -155,7 +156,9 @@ class HDC(mqtt.Client):
           self.runtime.temp_en
           raise KeyError("Temperature sensor enable channel already allocated")
         except AttributeError:
+          print ("Creating Temperature Enable Runtime Objects")
           self.runtime.temp_en = acq.acObject
+          GPIO.setup(acq.acObject, GPIO.OUT)
           self.runtime.temp_power_on = True
           self.runtime.temp_power_last = True
       else:
@@ -238,27 +241,29 @@ class HDC(mqtt.Client):
     for name in self.runtime.pir_channels:
       checks[name] = self.runtime.ct_ios[name].confirmed
       self.runtime.last_pir_state[name] = checks[name]
-
+    
+    # bad coding for testing if the temperature fault restart can happen
     try: 
       self.runtime.temp_power_fault = self.runtime.temp_fault_sm.confirmed
+    except AttributeError:
+      for ts_name, ts_path in self.runtime.temp_channels.items():
+        checks[ts_name] = self.check_temp(ts_path[0])
+    else:
       checks["Temp Power Fault"] = int(self.runtime.temp_power_fault)
       self.runtime.temp_power_on = True
       for ts_name, ts_path in self.runtime.temp_channels.items():
         checks[ts_name] = self.check_temp(ts_path[0])
         received = checks[ts_name] != "XX"
         self.runtime.temp_power_on = self.runtime.temp_power_sm[ts_name].run(self.runtime.temp_power_last, self.runtime.temp_power_on, received, self.runtime.temp_power_fault)
-        if self.runtime.temp_power_sm.broke:
-          print("Temp sensor " + ts_name + " down", end = '')
-        if self.runtime.temp_power_sm.state == TempSensorPower.PowerState.RESTART:
-          print(" and causing one-wire network restart!")
-        else:
-          print("!")
+        if self.runtime.temp_power_sm[ts_name].broke:
+          print("Temp sensor \"" + ts_name + "\" down", end = '')
+          if self.runtime.temp_power_sm[ts_name].state == TempSensorPower.PowerState.RESTART:
+            print(" and causing one-wire network restart!")
+          else:
+            print("!")
       self.runtime.temp_power_last = self.runtime.temp_power_on
       checks["Temp Power"] = int(self.runtime.temp_power_on)
-    except AttributeError:
-      for ts_name, ts_path in self.runtime.temp_channels.items():
-        checks[ts_name] = self.check_temp(ts_path[0])
-      pass
+      GPIO.output(self.runtime.temp_en, self.runtime.temp_power_on)
 
     self.notify('checkup', checks)
   
