@@ -45,6 +45,16 @@
 			"name": "Outdoor Temp",
 			"acType": "TEMP",
 			"acObject": ["/sys/devices/w1_bus_master1/28-01131a4462ac/w1_slave"]
+		},
+		{
+			"name": "Temp Power Ena",
+			"acType": "TEMP_EN",
+			"acObject": 17
+		},
+		{
+			"name": "Temp Power Fault",
+			"acType": "TEMP_FAULT",
+			"acObject": 27
 		}
 	],
 	"long_checkup_freq": 100,

@@ -119,7 +119,7 @@ class HDC(mqtt.Client):
     # sort GPIOs
     self.runtime = type("Runtime", (object, ), {})
     self.runtime.switch_channels = {}
-    self.runtime.switch_channels = {}
+    self.runtime.flip_channels = {}
     self.runtime.pir_channels = {}
     self.runtime.last_pir_state = {}
     self.runtime.ct_ios = {}
@@ -132,7 +132,7 @@ class HDC(mqtt.Client):
         self.runtime.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
       elif acq.acType == "SW_INV":
         GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        self.runtime.switch_channels.update({acq.name : acq.acObject})
+        self.runtime.flip_channels.update({acq.name : acq.acObject})
         self.runtime.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
       elif acq.acType == "PIR":
         GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -236,7 +236,7 @@ class HDC(mqtt.Client):
     
     for name in self.runtime.switch_channels:
       checks[name] = self.runtime.ct_ios[name].confirmed
-    for name in self.runtime.switch_channels:
+    for name in self.runtime.flip_channels:
       checks[name] = self.runtime.ct_ios[name].confirmed
     for name in self.runtime.pir_channels:
       checks[name] = self.runtime.ct_ios[name].confirmed
@@ -274,7 +274,7 @@ class HDC(mqtt.Client):
       # value confirmed
       if result[0]:
         checks[name] = result[1]
-    for name, chan in self.runtime.switch_channels.items():
+    for name, chan in self.runtime.flip_channels.items():
       result = self.runtime.ct_ios[name].update(int (not GPIO.input(chan)))
       if result[0]:
         checks[name] = result[1]
