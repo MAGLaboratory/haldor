@@ -44,7 +44,7 @@
 		{
 			"name": "Outdoor Temp",
 			"acType": "TEMP",
-			"acObject": ["/sys/devices/w1_bus_master1/28-01131a4462ac/w1_slave"]
+			"acObject": ["/sys/devices/w1_bus_master1/28-3c01d60706be/w1_slave"]
 		},
 		{
 			"name": "Temp Power Ena",
