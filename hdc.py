@@ -133,7 +133,7 @@ class HDC(mqtt.Client):
       elif acq.acType == "SW_INV":
         GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         self.runtime.flip_channels.update({acq.name : acq.acObject})
-        self.runtime.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
+        self.runtime.ct_ios.update({acq.name : confirmation_threshold(not GPIO.input(acq.acObject),3)})
       elif acq.acType == "PIR":
         GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         self.runtime.pir_channels.update({acq.name : acq.acObject})
