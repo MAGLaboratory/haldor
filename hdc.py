@@ -94,10 +94,21 @@ class HDC(mqtt.Client):
   def on_connect(self, client, userdata, flags, rc):
     print("Connected: " + str(rc))
     self.subscribe("reporter/checkup_req")
+    self.subscribe(self.config.name + "/temp_power")
 
   def on_message(self, client, userdata, message):
-    print("Checkup received.")
-    self.checkup()
+    if (message.topic == "reporter/checkup_req"):
+      print("Checkup received.")
+      self.checkup()
+    elif (message.topic == self.config.name + "/temp_power"):
+      decoded = message.payload.decode('utf-8')
+      print("Temperature sensor power command received: " + decoded)
+      if (decoded.lower() == "false" or decoded == "0"):
+        print("Temperature sensor power commanded off")
+        self.runtime.temp_power_commanded = False
+      else:
+        print("Temperature sensor power commanded on")
+        self.runtime.temp_power_commanded = True
 
   def on_disconnect(self, client, userdata, rc):
     print("Disconnected: " + str(rc))
@@ -159,6 +170,7 @@ class HDC(mqtt.Client):
           print ("Creating Temperature Enable Runtime Objects")
           self.runtime.temp_en = acq.acObject
           GPIO.setup(acq.acObject, GPIO.OUT)
+          self.runtime.temp_power_commanded = True
           self.runtime.temp_power_on = True
           self.runtime.temp_power_last = True
       else:
@@ -250,7 +262,7 @@ class HDC(mqtt.Client):
         checks[ts_name] = self.check_temp(ts_path[0])
     else:
       checks["Temp Power Fault"] = int(self.runtime.temp_power_fault)
-      self.runtime.temp_power_on = True
+      self.runtime.temp_power_on = self.runtime.temp_power_commanded
       for ts_name, ts_path in self.runtime.temp_channels.items():
         checks[ts_name] = self.check_temp(ts_path[0])
         received = checks[ts_name] != "XX"
