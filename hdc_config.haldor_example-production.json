@@ -39,7 +39,7 @@
 		{
 			"name": "Bay Temp",
 			"acType": "TEMP",
-			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
+			"acObject": ["/sys/devices/w1_bus_master1/28-3c01d60751f3/w1_slave"]
 		},
 		{
 			"name": "Outdoor Temp",
