@@ -14,10 +14,10 @@ HALDOR collects data from the sources listed above.  The collected data is repor
 * DS18B20 one-wire thermistors
 #### Software
 * Python
- * multitimer
- * dataclasses_json
- * paho mqtt
- * OPi.GPIO
+    * multitimer
+    * dataclasses_json
+    * paho mqtt
+    * OPi.GPIO
 
 ### Installing
 * If needed follow the OPi.GPIO guide on non-root access of the gpios
@@ -48,7 +48,7 @@ No version numbers used.  Here are some git hashes.
 
 * ae1c0b: A working commit
 * 79d905: MQTT and JSON implemented
- * d5b533: Bugfixes and cleanup
+    * d5b533: Bugfixes and cleanup
 * c8667b: Temperature sensor power restart implemented
 
 ## License
