@@ -40,6 +40,11 @@
 			"name": "ShopB Temp",
 			"acType": "TEMP",
 			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
+		},
+		{
+			"name": "Fan Temp",
+			"acType": "TEMP",
+			"acObject": ["/sys/devices/w1_bus_master1/28-3c01d607d1ae/w1_slave"]
 		}
 	],
 	"long_checkup_freq": 10,
