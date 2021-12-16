@@ -40,8 +40,9 @@ Submit a bug report on the `MAGLaboratory/haldor` github or email somebody at ma
 ## Authors
 The project originally started as somebody's senior design project.  The current author does not know their name.
 
-@blu006
-@kiafaldorius
+The known contributors are as follows:
+* @blu006
+* @kiafaldorius
 
 ## Version History
 No version numbers used.  Here are some git hashes.
@@ -55,7 +56,7 @@ No version numbers used.  Here are some git hashes.
 Public domain
 
 ## Acknowledgements
-Raspberry pi 
-Dallas / Maxim Semiconductor
-Authors of the supporting libraries -- this is Python after all.
-MAG Laboratory
+* Raspberry pi 
+* Dallas / Maxim Semiconductor
+* Authors of the supporting libraries -- this is Python after all.
+* MAG Laboratory
