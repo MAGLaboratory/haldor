@@ -5,6 +5,7 @@ import traceback, os
 from daemon import Daemon
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
+from enum import Enum
 from typing import *
 from multitimer import MultiTimer
 from confirmation_threshold import confirmation_threshold
@@ -14,7 +15,7 @@ class HDCDaemon(Daemon):
     h_datacollector = HDC()
     my_path = os.path.dirname(os.path.abspath(__file__))
     config = open(my_path + "/hdc_config.json", "r")
-    h_datacollector.data = HDC.data.from_json(config.read())
+    h_datacollector.config = HDC.config.from_json(config.read())
     config.close()
 
     h_datacollector.run()
@@ -26,6 +27,40 @@ class Acquisition:
     acType: str
     acObject: Union[List[str], int]
 
+class TempSensorPower:
+  class PowerState(Enum):
+    INIT = 0
+    RESTART = 1
+    CHECK = 2
+
+  state = PowerState.INIT
+  allowedRestarts = 1
+  restarts = 0
+  broke = False
+
+  def run(self, lastPower, power, reception, fault):
+    self.broke = lastPower and not reception and not fault
+    # transitions
+    if self.state == self.PowerState.INIT:
+      if self.broke:
+        self.state = self.PowerState.RESTART
+    elif self.state == self.PowerState.RESTART:
+      self.state = self.PowerState.CHECK
+    elif self.state == self.PowerState.CHECK:
+      if self.restarts < self.allowedRestarts:
+        if self.broke:
+          self.state = self.PowerState.RESTART
+      if not self.broke:
+          self.state = self.PowerState.INIT
+    else:
+      self.state = self.PowerState.INIT
+
+    # output
+    if self.state == self.PowerState.RESTART:
+      power = False
+      self.restarts += 1
+    return power
+
 class HDC(mqtt.Client):
   """Watches the door and monitors various switches and motion via GPIO"""
 
@@ -33,7 +68,7 @@ class HDC(mqtt.Client):
   # dataclass variable declaration
   @dataclass_json
   @dataclass
-  class data:
+  class config:
     name: str
     description: str
     boot_check_list: Dict[str, List[str]]
@@ -44,6 +79,7 @@ class HDC(mqtt.Client):
     mqtt_broker: str
     mqtt_port: int
     mqtt_timeout: int
+    temp_max_restart: int = 1
 
   # overloaded MQTT functions from (mqtt.Client)
   def on_log(self, client, userdata, level, buff):
@@ -58,10 +94,21 @@ class HDC(mqtt.Client):
   def on_connect(self, client, userdata, flags, rc):
     print("Connected: " + str(rc))
     self.subscribe("reporter/checkup_req")
+    self.subscribe(self.config.name + "/temp_power")
 
   def on_message(self, client, userdata, message):
-    print("Checkup received.")
-    self.checkup()
+    if (message.topic == "reporter/checkup_req"):
+      print("Checkup received.")
+      self.checkup()
+    elif (message.topic == self.config.name + "/temp_power"):
+      decoded = message.payload.decode('utf-8')
+      print("Temperature sensor power command received: " + decoded)
+      if (decoded.lower() == "false" or decoded == "0"):
+        print("Temperature sensor power commanded off")
+        self.runtime.temp_power_commanded = False
+      else:
+        print("Temperature sensor power commanded on")
+        self.runtime.temp_power_commanded = True
 
   def on_disconnect(self, client, userdata, rc):
     print("Disconnected: " + str(rc))
@@ -70,8 +117,8 @@ class HDC(mqtt.Client):
   # HDC functions
   def enable_gpio(self):
     global GPIO
-    print(self.data.gpio_path)
-    if not self.data.gpio_path:
+    print(self.config.gpio_path)
+    if not self.config.gpio_path:
       import orangepi.one
       import OPi.GPIO as GPIO
       GPIO.setmode(orangepi.one.BOARD)
@@ -81,34 +128,59 @@ class HDC(mqtt.Client):
       GPIO.setmode(GPIO.BCM)
 
     # sort GPIOs
-    self.data.switch_channels = {}
-    self.data.flip_channels = {}
-    self.data.pir_channels = {}
-    self.data.last_pir_state = {}
-    self.data.ct_ios = {}
-    self.data.temp_channels = {}
-    for acq in self.data.acq_io:
+    self.runtime = type("Runtime", (object, ), {})
+    self.runtime.switch_channels = {}
+    self.runtime.flip_channels = {}
+    self.runtime.pir_channels = {}
+    self.runtime.last_pir_state = {}
+    self.runtime.ct_ios = {}
+    self.runtime.temp_channels = {}
+    self.runtime.temp_power_sm = {}
+    for acq in self.config.acq_io:
       if acq.acType == "SW":
         GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        self.data.switch_channels.update({acq.name : acq.acObject})
-        self.data.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
-      if acq.acType == "SW_INV":
+        self.runtime.switch_channels.update({acq.name : acq.acObject})
+        self.runtime.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
+      elif acq.acType == "SW_INV":
         GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        self.data.flip_channels.update({acq.name : acq.acObject})
-        self.data.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
-      if acq.acType == "PIR":
+        self.runtime.flip_channels.update({acq.name : acq.acObject})
+        self.runtime.ct_ios.update({acq.name : confirmation_threshold(not GPIO.input(acq.acObject),3)})
+      elif acq.acType == "PIR":
         GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        self.data.pir_channels.update({acq.name : acq.acObject})
-        self.data.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
-        self.data.last_pir_state.update({acq.name : 0})
-      if acq.acType == "TEMP":
-        self.data.temp_channels.update({acq.name : acq.acObject})
+        self.runtime.pir_channels.update({acq.name : acq.acObject})
+        self.runtime.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
+        self.runtime.last_pir_state.update({acq.name : 0})
+      elif acq.acType == "TEMP":
+        self.runtime.temp_channels.update({acq.name : acq.acObject})
+        self.runtime.temp_power_sm.update({acq.name : TempSensorPower()})
+      elif acq.acType == "TEMP_FAULT":
+        try:
+          self.runtime.temp_fault
+          raise KeyError("Temperature sensor fault channel already allocated")
+        except AttributeError:
+          print ("Creating Temperature Fault Runtime Objects")
+          self.runtime.temp_fault = acq.acObject
+          GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+          self.runtime.temp_fault_sm = confirmation_threshold(not GPIO.input(acq.acObject),3)
+      elif acq.acType == "TEMP_EN":
+        try:
+          self.runtime.temp_en
+          raise KeyError("Temperature sensor enable channel already allocated")
+        except AttributeError:
+          print ("Creating Temperature Enable Runtime Objects")
+          self.runtime.temp_en = acq.acObject
+          GPIO.setup(acq.acObject, GPIO.OUT)
+          self.runtime.temp_power_commanded = True
+          self.runtime.temp_power_on = True
+          self.runtime.temp_power_last = True
+      else:
+        raise KeyError('"' + acq.acType + '"' + " is not a valid acquisition type")
 
   def notify(self, path, params, retain=False):
     params['time'] = str(time.time())
     print (params)
 
-    topic = self.data.name + '/' + path
+    topic = self.config.name + '/' + path
     self.publish(topic, json.dumps(params), retain=retain)
     print("Published " + topic)
   
@@ -117,7 +189,7 @@ class HDC(mqtt.Client):
 
     print("Bootup:")
     
-    for bc_name, bc_cmd in self.data.boot_check_list.items():
+    for bc_name, bc_cmd in self.config.boot_check_list.items():
         boot_checks[bc_name] = subprocess.check_output(
                 bc_cmd, 
                 shell=True
@@ -162,47 +234,76 @@ class HDC(mqtt.Client):
     checks = {}
     
     self.pings+=1
-    if(self.pings % self.data.long_checkup_freq == 0):
+    if(self.pings % self.config.long_checkup_freq == 0):
       self.pings = 0
-      long_checkup_count = 0
-      for check_name, check_command in self.data.boot_check_list:
-        long_checkup_count += 1
-        if long_checkup_count > self.data.long_checkup_leng:
+      long_checks = 0
+      for check_name, check_command in self.config.boot_check_list.items():
+        long_checks += 1
+        if long_checks > self.config.long_checkup_leng:
           break
         checks[check_name] = subprocess.check_output(
                 check_command, 
                 shell=True
         ).decode('utf-8')
     
-    for name in self.data.switch_channels:
-      checks[name] = self.data.ct_ios[name].confirmed
-    for name in self.data.flip_channels:
-      checks[name] = self.data.ct_ios[name].confirmed
-    for name in self.data.pir_channels:
-      checks[name] = self.data.ct_ios[name].confirmed
-      self.data.last_pir_state[name] = checks[name]
-    for ts_name, ts_path in self.data.temp_channels.items():
-      checks[ts_name] = self.check_temp(ts_path[0])
+    for name in self.runtime.switch_channels:
+      checks[name] = self.runtime.ct_ios[name].confirmed
+    for name in self.runtime.flip_channels:
+      checks[name] = self.runtime.ct_ios[name].confirmed
+    for name in self.runtime.pir_channels:
+      checks[name] = self.runtime.ct_ios[name].confirmed
+      self.runtime.last_pir_state[name] = checks[name]
+    
+    # bad coding for testing if the temperature fault restart can happen
+    try: 
+      self.runtime.temp_power_fault = self.runtime.temp_fault_sm.confirmed
+    except AttributeError:
+      for ts_name, ts_path in self.runtime.temp_channels.items():
+        checks[ts_name] = self.check_temp(ts_path[0])
+    else:
+      checks["Temp Power Fault"] = int(self.runtime.temp_power_fault)
+      self.runtime.temp_power_on = self.runtime.temp_power_commanded
+      for ts_name, ts_path in self.runtime.temp_channels.items():
+        checks[ts_name] = self.check_temp(ts_path[0])
+        received = checks[ts_name] != "XX"
+        self.runtime.temp_power_on = self.runtime.temp_power_sm[ts_name].run(self.runtime.temp_power_last, self.runtime.temp_power_on, received, self.runtime.temp_power_fault)
+        if self.runtime.temp_power_sm[ts_name].broke:
+          print("Temp sensor \"" + ts_name + "\" down", end = '')
+          if self.runtime.temp_power_sm[ts_name].state == TempSensorPower.PowerState.RESTART:
+            print(" and causing one-wire network restart!")
+          else:
+            print("!")
+      self.runtime.temp_power_last = self.runtime.temp_power_on
+      checks["Temp Power"] = int(self.runtime.temp_power_on)
+      GPIO.output(self.runtime.temp_en, self.runtime.temp_power_on)
+
     self.notify('checkup', checks)
   
   def timed_checkup(self):
     checks = {}
-    for name, chan in self.data.switch_channels.items():
-      result = self.data.ct_ios[name].update(GPIO.input(chan))
+    for name, chan in self.runtime.switch_channels.items():
+      result = self.runtime.ct_ios[name].update(GPIO.input(chan))
       # value confirmed
       if result[0]:
         checks[name] = result[1]
-    for name, chan in self.data.flip_channels.items():
-      result = self.data.ct_ios[name].update(int (not GPIO.input(chan)))
+    for name, chan in self.runtime.flip_channels.items():
+      result = self.runtime.ct_ios[name].update(int (not GPIO.input(chan)))
       if result[0]:
         checks[name] = result[1]
-    for name, chan in self.data.pir_channels.items():
-      result = self.data.ct_ios[name].update(GPIO.input(chan))
+    for name, chan in self.runtime.pir_channels.items():
+      result = self.runtime.ct_ios[name].update(GPIO.input(chan))
       # PIR's are special because they like to be on and are only turned off during
       # timed checkups
-      if result[0] and result[1] and not self.data.last_pir_state[name]:
+      if result[0] and result[1] and not self.runtime.last_pir_state[name]:
         checks[name] = result[1]
-        self.data.last_pir_state[name] = result[1]
+        self.runtime.last_pir_state[name] = result[1]
+
+    try:
+      result = self.runtime.temp_fault_sm.update(not GPIO.input(self.runtime.temp_fault))
+      if result[0]:
+        checks["Temp Power Fault"] = result[1]
+    except AttributeError:
+      pass
     # notify if any values were changed
     if checks:
       self.notify('event', checks)
@@ -212,7 +313,7 @@ class HDC(mqtt.Client):
       self.running = True
       while self.running:
         try:
-          self.connect(self.data.mqtt_broker, self.data.mqtt_port, self.data.mqtt_timeout)
+          self.connect(self.config.mqtt_broker, self.config.mqtt_port, self.config.mqtt_timeout)
           self.bootup()
           timer = MultiTimer(interval=5, function=self.timed_checkup)
           timer.start()
@@ -229,4 +330,5 @@ class HDC(mqtt.Client):
           pass
 
         if self.exiting:
+          self.disconnect()
           exit(0) 

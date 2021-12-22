@@ -39,12 +39,22 @@
 		{
 			"name": "Bay Temp",
 			"acType": "TEMP",
-			"acObject": ["/sys/devices/w1_bus_master1/28-01131a39e5fa/w1_slave"]
+			"acObject": ["/sys/devices/w1_bus_master1/28-3c01d60751f3/w1_slave"]
 		},
 		{
 			"name": "Outdoor Temp",
 			"acType": "TEMP",
-			"acObject": ["/sys/devices/w1_bus_master1/28-01131a4462ac/w1_slave"]
+			"acObject": ["/sys/devices/w1_bus_master1/28-3c01d60706be/w1_slave"]
+		},
+		{
+			"name": "Temp Power Ena",
+			"acType": "TEMP_EN",
+			"acObject": 17
+		},
+		{
+			"name": "Temp Power Fault",
+			"acType": "TEMP_FAULT",
+			"acObject": 27
 		}
 	],
 	"long_checkup_freq": 100,
