@@ -33,10 +33,11 @@ class TempSensorPower:
     RESTART = 1
     CHECK = 2
 
-  state = PowerState.INIT
-  allowedRestarts = 1
-  restarts = 0
-  broke = False
+  def __init__(self, allowedRestarts=0):
+    self.state = self.PowerState.INIT
+    self.allowedRestarts = allowedRestarts
+    self.restarts = 0
+    self.broke = False
 
   def run(self, lastPower, power, reception, fault):
     self.broke = lastPower and not reception and not fault
@@ -47,7 +48,7 @@ class TempSensorPower:
     elif self.state == self.PowerState.RESTART:
       self.state = self.PowerState.CHECK
     elif self.state == self.PowerState.CHECK:
-      if self.restarts < self.allowedRestarts:
+      if self.allowedRestarts == 0 or self.restarts < self.allowedRestarts:
         if self.broke:
           self.state = self.PowerState.RESTART
       if not self.broke:
@@ -79,7 +80,7 @@ class HDC(mqtt.Client):
     mqtt_broker: str
     mqtt_port: int
     mqtt_timeout: int
-    temp_max_restart: int = 1
+    temp_max_restart: int = 0
 
   # overloaded MQTT functions from (mqtt.Client)
   def on_log(self, client, userdata, level, buff):
@@ -152,7 +153,7 @@ class HDC(mqtt.Client):
         self.runtime.last_pir_state.update({acq.name : 0})
       elif acq.acType == "TEMP":
         self.runtime.temp_channels.update({acq.name : acq.acObject})
-        self.runtime.temp_power_sm.update({acq.name : TempSensorPower()})
+        self.runtime.temp_power_sm.update({acq.name : TempSensorPower(self.config.temp_max_restart)})
       elif acq.acType == "TEMP_FAULT":
         try:
           self.runtime.temp_fault
