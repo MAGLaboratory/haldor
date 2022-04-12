@@ -1,0 +1,11 @@
+[Unit]
+Description=MAG Laboratory Haldor Data Collector, Gathers Sensor Data
+
+[Service]
+User=haldor
+Group=haldor
+Restart=on-failure
+ExecStart=/home/haldor/haldor/start.sh nodaemon
+
+[Install]
+WantedBy=multi-user.target

@@ -27,6 +27,7 @@ class Acquisition:
     acType: str
     acObject: Union[List[str], int]
 
+# state machine for temperature sensor power network restart
 class TempSensorPower:
   class PowerState(Enum):
     INIT = 0
@@ -80,7 +81,7 @@ class HDC(mqtt.Client):
     mqtt_broker: str
     mqtt_port: int
     mqtt_timeout: int
-    temp_max_restart: int = 0
+    temp_max_restart: int = 3
 
   # overloaded MQTT functions from (mqtt.Client)
   def on_log(self, client, userdata, level, buff):
@@ -112,8 +113,8 @@ class HDC(mqtt.Client):
         self.runtime.temp_power_commanded = True
 
   def on_disconnect(self, client, userdata, rc):
-    print("Disconnected: " + str(rc))
-    self.running = False;
+    print("Disconnected: " + str(rc), ".  Reconnecting.")
+    self.reconnect()
 
   # HDC functions
   def enable_gpio(self):
