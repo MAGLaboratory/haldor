@@ -272,7 +272,6 @@ class HDC(mqtt.Client):
     exit(0)
 
   def checkup(self):
-    print("Checkup.")
     checks = {}
     
     self.pings+=1
@@ -317,11 +316,13 @@ class HDC(mqtt.Client):
       self.runtime.temp_power_last = self.runtime.temp_power_on
       checks["Temp Power"] = int(self.runtime.temp_power_on)
       GPIO.output(self.runtime.temp_en, self.runtime.temp_power_on)
-
+    
     self.notify('checkup', checks)
-  
+ 
+# this function is called by the polling timer.
   def timed_checkup(self):
     checks = {}
+    logging.debug("Timed checkup")
     for name, chan in self.runtime.switch_channels.items():
       result = self.runtime.ct_ios[name].update(GPIO.input(chan))
       # value confirmed
@@ -339,6 +340,7 @@ class HDC(mqtt.Client):
         checks[name] = result[1]
         self.runtime.last_pir_state[name] = result[1]
 
+    # don't run the temperature power control if there is no such thing.
     try:
       result = self.runtime.temp_fault_sm.update(not GPIO.input(self.runtime.temp_fault))
       if result[0]:
@@ -348,14 +350,16 @@ class HDC(mqtt.Client):
     # notify if any values were changed
     if checks:
       self.notify('event', checks)
+    else:
+      logging.debug("Noting changed between timed checkups")
   
   def run(self):
     self.tEvent = Event()
     self.running = True
     startup_count = 0
     try:
-      if type(logging.getLevelName(self.config.loglevel)) is int:
-        logging.basicConfig(level=self.config.loglevel)
+      if type(logging.getLevelName(self.config.loglevel.upper())) is int:
+        logging.basicConfig(level=self.config.loglevel.upper())
       else:
         logging.warning("Log level not configured.  Defaulting to WARNING.")
     except KeyError:
