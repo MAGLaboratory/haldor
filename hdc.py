@@ -320,9 +320,13 @@ class HDC(mqtt.Client):
     self.notify('checkup', checks)
  
 # this function is called by the polling timer.
-  def timed_checkup(self):
+  def io_check(self):
     checks = {}
-    logging.debug("Timed checkup")
+    if (self.io_check_num == 65535):
+      self.io_check_num = 0
+    else:
+      self.io_check_num += 1
+    logging.debug("IO check " + str(self.io_check_num))
     for name, chan in self.runtime.switch_channels.items():
       result = self.runtime.ct_ios[name].update(GPIO.input(chan))
       # value confirmed
@@ -351,12 +355,13 @@ class HDC(mqtt.Client):
     if checks:
       self.notify('event', checks)
     else:
-      logging.debug("Noting changed between timed checkups")
+      logging.debug("Noting changed between timed io checks")
   
   def run(self):
     self.tEvent = Event()
     self.running = True
     startup_count = 0
+    self.io_check_num = 0
     try:
       if type(logging.getLevelName(self.config.loglevel.upper())) is int:
         logging.basicConfig(level=self.config.loglevel.upper())
@@ -373,7 +378,7 @@ class HDC(mqtt.Client):
         self.connect(self.config.mqtt_broker, self.config.mqtt_port, self.config.mqtt_timeout)
         atexit.register(self.disconnect)
         self.notify_bootup()
-        self.ioPolling = MultiTimer(interval=5, function=self.timed_checkup)
+        self.ioPolling = MultiTimer(interval=5, function=self.io_check)
         self.ioPolling.start()
         atexit.register(self.ioPolling.stop)
         break
