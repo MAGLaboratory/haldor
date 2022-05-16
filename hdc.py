@@ -269,7 +269,7 @@ class HDC(mqtt.Client):
     logging.warning("Caught a deadly signal: " + str(signum) + "!")
     if self.ioPolling:
       self.ioPolling.stop()
-    exit(0)
+    self.running = False
 
   def checkup(self):
     checks = {}
@@ -322,11 +322,11 @@ class HDC(mqtt.Client):
 # this function is called by the polling timer.
   def io_check(self):
     checks = {}
-    if (self.io_check_num == 65535):
-      self.io_check_num = 0
+    if (self.io_check_count >= 65535):
+      self.io_check_count = 0
     else:
-      self.io_check_num += 1
-    logging.debug("IO check " + str(self.io_check_num))
+      self.io_check_count += 1
+    logging.debug("IO check " + str(self.io_check_count))
     for name, chan in self.runtime.switch_channels.items():
       result = self.runtime.ct_ios[name].update(GPIO.input(chan))
       # value confirmed
@@ -361,7 +361,8 @@ class HDC(mqtt.Client):
     self.tEvent = Event()
     self.running = True
     startup_count = 0
-    self.io_check_num = 0
+    self.io_check_count = 0
+    self.loop_count = 0
     try:
       if type(logging.getLevelName(self.config.loglevel.upper())) is int:
         logging.basicConfig(level=self.config.loglevel.upper())
@@ -396,6 +397,10 @@ class HDC(mqtt.Client):
     self.reconnect_me = False
     self.inner_reconnect_try = 0
     while self.running and (self.inner_reconnect_try < 10):
+      if self.loop_count >= 65535:
+        self.loop_count = 0
+      else:
+        self.loop_count += 1
       try:
         if self.reconnect_me == True:
           self.reconnect()
