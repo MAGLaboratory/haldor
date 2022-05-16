@@ -1,0 +1,13 @@
+[Unit]
+Description=MAG Laboratory Haldor Sensor Data Collector
+
+[Service]
+User=haldor
+Group=haldor
+Restart=on-failure
+RestartSec=30s
+EnvironmentFile=/home/haldor/haldor/hdc.env
+ExecStart=/home/haldor/haldor/hdc.py
+
+[Install]
+WantedBy=multi-user.target

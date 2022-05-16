@@ -63,5 +63,6 @@
 	"gpio_path": "/sys/class/gpio",
 	"mqtt_broker": "daisy",
 	"mqtt_port": 1883,
-	"mqtt_timeout": 60
+	"mqtt_timeout": 60,
+	"loglevel": "DEBUG"
 }
