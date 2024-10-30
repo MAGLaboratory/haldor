@@ -153,17 +153,14 @@ class HDC(mqtt.Client):
 
   # HDC functions
   def enable_gpio(self):
-    global GPIO
-    if not self.config.gpio_path:
-      logging.debug("Configuring GPIOs")
-      import orangepi.one
-      import OPi.GPIO as GPIO
-      GPIO.setmode(orangepi.one.BOARD)
-      GPIO.setwarnings(False)
-    else:
+    global GPIO, Direction, Bias, Value
+    if self.config.gpio_path.startswith("/dev/gpiochip"):
       logging.debug("Configuring GPIOs at: " + self.config.gpio_path)
-      import RPi.GPIO as GPIO
-      GPIO.setmode(GPIO.BCM)
+      import gpiod as GPIO
+      from gpiod.line import Direction, Bias, Value
+      self._gpiodict = {}
+    else:
+      raise KeyError("This HDC implementation does not support the selected GPIO method.")
 
     # sort GPIOs
     self.runtime = type("Runtime", (object, ), {})
@@ -174,23 +171,21 @@ class HDC(mqtt.Client):
     self.runtime.ct_ios = {}
     self.runtime.temp_channels = {}
     self.runtime.temp_power_sm = {}
+    logging.debug("Running through I/O configuration.")
     for acq in self.config.acq_io:
       if acq.acType == "SW":
         logging.debug("Configuring Switch: " + str(acq.acObject))
-        GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         self.runtime.switch_channels.update({acq.name : acq.acObject})
-        self.runtime.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
+        self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "SW_INV":
         logging.debug("Configuring invSwitch: " + str(acq.acObject))
-        GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         self.runtime.flip_channels.update({acq.name : acq.acObject})
-        self.runtime.ct_ios.update({acq.name : confirmation_threshold(not GPIO.input(acq.acObject),3)})
+        self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "PIR":
         logging.debug("Configuring PIR Sensor: " + str(acq.acObject))
-        GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         self.runtime.pir_channels.update({acq.name : acq.acObject})
-        self.runtime.ct_ios.update({acq.name : confirmation_threshold(GPIO.input(acq.acObject),3)})
         self.runtime.last_pir_state.update({acq.name : 0})
+        self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "TEMP":
         logging.debug("Configuring Temperature Sensor: " + str(acq.acObject))
         self.runtime.temp_channels.update({acq.name : acq.acObject})
@@ -202,8 +197,7 @@ class HDC(mqtt.Client):
         except AttributeError:
           logging.debug("Configuring Temperature Power Fault: " + str(acq.acObject))
           self.runtime.temp_fault = acq.acObject
-          GPIO.setup(acq.acObject, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-          self.runtime.temp_fault_sm = confirmation_threshold(not GPIO.input(acq.acObject),3)
+          self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "TEMP_EN":
         try:
           self.runtime.temp_en
@@ -211,12 +205,30 @@ class HDC(mqtt.Client):
         except AttributeError:
           logging.debug("Configuring Temperature Power Enable: " + str(acq.acObject))
           self.runtime.temp_en = acq.acObject
-          GPIO.setup(acq.acObject, GPIO.OUT)
+          self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT)})
           self.runtime.temp_power_commanded = True
           self.runtime.temp_power_on = True
           self.runtime.temp_power_last = True
       else:
         raise KeyError('"' + acq.acType + '"' + " is not a valid acquisition type")
+
+    logging.debug(f"GPIO configuration generated: {self._gpiodict}")
+    logging.debug("Applying configuration.")
+    self._gpioreq = GPIO.request_lines(self.config.gpio_path ,consumer=self.config.name ,config=self._gpiodict)
+
+    logging.debug("Starting debouncing.")
+    # Switches
+    for name, line in self.runtime.switch_channels.items():
+      self.runtime.ct_ios.update({name : confirmation_threshold(1 if self._gpioreq.get_value(line) == Value.ACTIVE else 0, 3)})
+    # Inverted Switches
+    for name, line in self.runtime.flip_channels.items():
+      self.runtime.ct_ios.update({name : confirmation_threshold(0 if self._gpioreq.get_value(line) == Value.ACTIVE else 1, 3)})
+    # PIR sensors
+    for name, line in self.runtime.pir_channels.items():
+      self.runtime.ct_ios.update({name : confirmation_threshold(1 if self._gpioreq.get_value(line) == Value.ACTIVE else 0, 3)})
+    # Temperature Fault
+    if hasattr(self.runtime, "temp_fault"):
+      self.runtime.temp_fault_sm = confirmation_threshold(0 if self._gpioreq.get_value(self.runtime.temp_en) == Value.ACTIVE else 1, 3)
 
   def notify(self, path, params, retain=False):
     params['time'] = str(time.time())
@@ -315,7 +327,7 @@ class HDC(mqtt.Client):
             logging.warn("Temp sensor \"" + ts_name + "down!")
       self.runtime.temp_power_last = self.runtime.temp_power_on
       checks["Temp Power"] = int(self.runtime.temp_power_on)
-      GPIO.output(self.runtime.temp_en, self.runtime.temp_power_on)
+      self._gpioreq.set_value(self.runtime.temp_en, self.runtime.temp_power_on)
     
     self.notify('checkup', checks)
  
@@ -328,16 +340,16 @@ class HDC(mqtt.Client):
       self.io_check_count += 1
     logging.debug("IO check " + str(self.io_check_count))
     for name, chan in self.runtime.switch_channels.items():
-      result = self.runtime.ct_ios[name].update(GPIO.input(chan))
+      result = self.runtime.ct_ios[name].update(1 if self._gpioreq.get_value(chan) == Value.ACTIVE else 0)
       # value confirmed
       if result[0]:
         checks[name] = result[1]
     for name, chan in self.runtime.flip_channels.items():
-      result = self.runtime.ct_ios[name].update(int (not GPIO.input(chan)))
+      result = self.runtime.ct_ios[name].update(0 if self._gpioreq.get_value(chan) == Value.ACTIVE else 1)
       if result[0]:
         checks[name] = result[1]
     for name, chan in self.runtime.pir_channels.items():
-      result = self.runtime.ct_ios[name].update(GPIO.input(chan))
+      result = self.runtime.ct_ios[name].update(1 if self._gpioreq.get_value(chan) == Value.ACTIVE else 0)
       # PIR's are special because they like to be on and are only turned off during
       # timed checkups
       if result[0] and result[1] and not self.runtime.last_pir_state[name]:
@@ -346,7 +358,7 @@ class HDC(mqtt.Client):
 
     # don't run the temperature power control if there is no such thing.
     try:
-      result = self.runtime.temp_fault_sm.update(not GPIO.input(self.runtime.temp_fault))
+      result = self.runtime.temp_fault_sm.update(0 if self._gpioreq.get_value(self.runtime.temp_fault) == Value.ACTIVE else 1)
       if result[0]:
         checks["Temp Power Fault"] = result[1]
     except AttributeError:

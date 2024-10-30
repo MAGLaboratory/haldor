@@ -1,0 +1,40 @@
+{
+	"name": "secmon00",
+	"description": "This is the security monitor configuration file.",
+	"boot_check_list": { },
+	"acq_io":[
+		{
+			"name": "TestPIR0",
+			"acType": "PIR",
+			"acObject": 20
+		},
+		{
+			"name": "TestPIR1",
+			"acType": "PIR",
+			"acObject": 10
+		},
+		{
+			"name": "TestPIR2",
+			"acType": "PIR",
+			"acObject": 9
+		},
+		{
+			"name": "TestPIR3",
+			"acType": "PIR",
+			"acObject": 8
+		},
+		{
+			"name": "TestPIR4",
+			"acType": "PIR",
+			"acObject": 19
+		}
+	],
+	"long_checkup_freq": 100,
+	"long_checkup_leng": 0,
+	"pidfile":"/tmp/daisy.pid",
+	"gpio_path": "/dev/gpiochip0",
+	"mqtt_broker": "hal",
+	"mqtt_port": 1883,
+	"mqtt_timeout": 60,
+	"loglevel": "DEBUG"
+}
