@@ -225,7 +225,7 @@ class HDC(mqtt.Client):
       self.runtime.ct_ios.update({name : confirmation_threshold(0 if self._gpioreq.get_value(line) == Value.ACTIVE else 1, 3)})
     # PIR sensors
     for name, line in self.runtime.pir_channels.items():
-      self.runtime.ct_ios.update({name : confirmation_threshold(1 if self._gpioreq.get_value(line) == Value.ACTIVE else 0, 3)})
+      self.runtime.ct_ios.update({name : confirmation_threshold(1 if self._gpioreq.get_value(line) == Value.ACTIVE else 0, 1)})
     # Temperature Fault
     if hasattr(self.runtime, "temp_fault"):
       self.runtime.temp_fault_sm = confirmation_threshold(0 if self._gpioreq.get_value(self.runtime.temp_en) == Value.ACTIVE else 1, 3)
@@ -352,7 +352,7 @@ class HDC(mqtt.Client):
       result = self.runtime.ct_ios[name].update(1 if self._gpioreq.get_value(chan) == Value.ACTIVE else 0)
       # PIR's are special because they like to be on and are only turned off during
       # timed checkups
-      if result[0] and result[1] and not self.runtime.last_pir_state[name]:
+      if result[0] and result[1] != self.runtime.last_pir_state[name]:
         checks[name] = result[1]
         self.runtime.last_pir_state[name] = result[1]
 
@@ -391,7 +391,7 @@ class HDC(mqtt.Client):
         self.connect(self.config.mqtt_broker, self.config.mqtt_port, self.config.mqtt_timeout)
         atexit.register(self.disconnect)
         self.notify_bootup()
-        self.ioPolling = MultiTimer(interval=5, function=self.io_check)
+        self.ioPolling = MultiTimer(interval=1, function=self.io_check)
         self.ioPolling.start()
         atexit.register(self.ioPolling.stop)
         break
