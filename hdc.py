@@ -171,6 +171,7 @@ class HDC(mqtt.Client):
     self.runtime.ct_ios = {}
     self.runtime.temp_channels = {}
     self.runtime.temp_power_sm = {}
+    self.runtime.output_channels = {}
     logging.debug("Running through I/O configuration.")
     for acq in self.config.acq_io:
       if acq.acType == "SW":
@@ -198,6 +199,10 @@ class HDC(mqtt.Client):
           logging.debug("Configuring Temperature Power Fault: " + str(acq.acObject))
           self.runtime.temp_fault = acq.acObject
           self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
+      elif acq.acType == "OUT":
+        logging.debug("Configuring Output: " + str(acq.acObject))
+        self.runtime.output_channels.update({acq.name : acq.acObject})
+        self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT)})
       elif acq.acType == "TEMP_EN":
         try:
           self.runtime.temp_en
@@ -355,7 +360,9 @@ class HDC(mqtt.Client):
       if result[0] and result[1] != self.runtime.last_pir_state[name]:
         checks[name] = result[1]
         self.runtime.last_pir_state[name] = result[1]
-
+    for name, chan in self.runtime.output_channels.items():
+      logging.debug(f"Channel {chan} outputting value {self.runtime.output_values[chan]}")
+      self._gpioreq.set_value(chan, self.runtime.output_values[chan])
     # don't run the temperature power control if there is no such thing.
     try:
       result = self.runtime.temp_fault_sm.update(0 if self._gpioreq.get_value(self.runtime.temp_fault) == Value.ACTIVE else 1)
