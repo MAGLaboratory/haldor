@@ -11,7 +11,11 @@ from enum import Enum
 from typing import *
 from multitimer import MultiTimer
 from confirmation_threshold import confirmation_threshold
+from maglab_crypto import MAGToken
 from threading import Event
+
+def conv_value(my_int):
+    return Value.Inactive if my_int == 0 else Value.Active
 
 class HDCDaemon(Daemon):
   def run(self):
@@ -31,7 +35,7 @@ class HDCDaemon(Daemon):
 class Acquisition:
     name: str
     acType: str
-    acObject: Union[List[str], int]
+    acObject: Union[List[str], int, List[int]]
 
 # state machine for temperature sensor power network restart
 # should probably add the state machine diagram in ascii art here
@@ -98,44 +102,49 @@ class HDC(mqtt.Client):
     mqtt_port: int
     mqtt_timeout: int
     temp_max_restart: int = 3
+    tokens: Optional[List[str]] = None
     loglevel: Optional[str] = None
 
   # overloaded MQTT functions from (mqtt.Client)
   def on_log(self, client, userdata, level, buff):
     if level == mqtt.MQTT_LOG_DEBUG:
-      logging.debug("PAHO MQTT DEBUG: " + buff)
+      self.log.debug("PAHO MQTT DEBUG: " + buff)
     elif level == mqtt.MQTT_LOG_INFO:
-      logging.info("PAHO MQTT INFO: " + buff)
+      self.log.info("PAHO MQTT INFO: " + buff)
     elif level == mqtt.MQTT_LOG_NOTICE:
-      logging.info("PAHO MQTT NOTICE: " + buff)
+      self.log.info("PAHO MQTT NOTICE: " + buff)
     elif level == mqtt.MQTT_LOG_WARNING:
-      logging.warning("PAHO MQTT WARN: " + buff)
+      self.log.warning("PAHO MQTT WARN: " + buff)
     else:
-      logging.error("PAHO MQTT ERROR: " + buff)
+      self.log.error("PAHO MQTT ERROR: " + buff)
 
   def on_connect(self, client, userdata, flags, rc):
-    logging.info("Connected: " + str(rc))
+    self.log.info("Connected: " + str(rc))
     self.subscribe("reporter/checkup_req")
     self.subscribe(self.config.name + "/temp_power")
+    self.subscribe(f"{self.config.name}/cmd")
 
   def on_message(self, client, userdata, message):
     if (message.topic == "reporter/checkup_req"):
-      logging.info("Checkup received.")
+      self.log.info("Checkup received.")
       self.checkup()
     elif (message.topic == self.config.name + "/temp_power"):
       decoded = message.payload.decode('utf-8')
-      logging.debug("Temperature sensor power command received: " + decoded)
+      self.log.debug("Temperature sensor power command received: " + decoded)
       if (decoded.lower() == "false" or decoded == "0"):
-        logging.info("Temperature sensor power commanded off")
+        self.log.info("Temperature sensor power commanded off")
         self.runtime.temp_power_commanded = False
       else:
-        logging.info("Temperature sensor power commanded on")
+        self.log.info("Temperature sensor power commanded on")
         self.runtime.temp_power_commanded = True
+    elif message.topic == f"{self.config.name}/cmd":
+        if self.mag_token:
+            commands = self.mag_token.cmd_msg_auth(message.payload.decode("utf-8"), 7200)
 
   def on_disconnect(self, client, userdata, rc):
-    logging.warning("Disconnected: " + str(rc))
+    self.log.warning("Disconnected: " + str(rc))
     if rc != 0:
-        logging.error("Unexpected disconnection.  Attempting reconnection.")
+        self.log.error("Unexpected disconnection.  Attempting reconnection.")
         reconnect_count = 0
         while (reconnect_count < 10):
             try:
@@ -143,19 +152,19 @@ class HDC(mqtt.Client):
                 self.reconnect()
                 break
             except OSError:
-                logging.error("Connection error while trying to reconnect.")
-                logging.error(traceback.format_exc())
-                logging.error("Waiting to restart.")
+                self.log.error("Connection error while trying to reconnect.")
+                self.log.error(traceback.format_exc())
+                self.log.error("Waiting to restart.")
                 self.tEvent.wait(30)
         if reconnect_count >= 10:
-            logging.critical("Too many reconnect tries.  Exiting.")
+            self.log.critical("Too many reconnect tries.  Exiting.")
             os._exit(1)
 
   # HDC functions
   def enable_gpio(self):
     global GPIO, Direction, Bias, Value
     if self.config.gpio_path.startswith("/dev/gpiochip"):
-      logging.debug("Configuring GPIOs at: " + self.config.gpio_path)
+      self.log.debug("Configuring GPIOs at: " + self.config.gpio_path)
       import gpiod as GPIO
       from gpiod.line import Direction, Bias, Value
       self._gpiodict = {}
@@ -172,23 +181,23 @@ class HDC(mqtt.Client):
     self.runtime.temp_channels = {}
     self.runtime.temp_power_sm = {}
     self.runtime.output_channels = {}
-    logging.debug("Running through I/O configuration.")
+    self.log.debug("Running through I/O configuration.")
     for acq in self.config.acq_io:
       if acq.acType == "SW":
-        logging.debug("Configuring Switch: " + str(acq.acObject))
+        self.log.debug("Configuring Switch: " + str(acq.acObject))
         self.runtime.switch_channels.update({acq.name : acq.acObject})
         self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "SW_INV":
-        logging.debug("Configuring invSwitch: " + str(acq.acObject))
+        self.log.debug("Configuring invSwitch: " + str(acq.acObject))
         self.runtime.flip_channels.update({acq.name : acq.acObject})
         self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "PIR":
-        logging.debug("Configuring PIR Sensor: " + str(acq.acObject))
+        self.log.debug("Configuring PIR Sensor: " + str(acq.acObject))
         self.runtime.pir_channels.update({acq.name : acq.acObject})
         self.runtime.last_pir_state.update({acq.name : 0})
         self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "TEMP":
-        logging.debug("Configuring Temperature Sensor: " + str(acq.acObject))
+        self.log.debug("Configuring Temperature Sensor: " + str(acq.acObject))
         self.runtime.temp_channels.update({acq.name : acq.acObject})
         self.runtime.temp_power_sm.update({acq.name : TempSensorPower(self.config.temp_max_restart)})
       elif acq.acType == "TEMP_FAULT":
@@ -196,19 +205,25 @@ class HDC(mqtt.Client):
           self.runtime.temp_fault
           raise KeyError("Temperature sensor fault channel already allocated")
         except AttributeError:
-          logging.debug("Configuring Temperature Power Fault: " + str(acq.acObject))
+          self.log.debug("Configuring Temperature Power Fault: " + str(acq.acObject))
           self.runtime.temp_fault = acq.acObject
           self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)})
       elif acq.acType == "OUT":
-        logging.debug("Configuring Output: " + str(acq.acObject))
-        self.runtime.output_channels.update({acq.name : acq.acObject})
-        self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT)})
+        self.log.debug("Configuring Output: " + str(acq.acObject))
+        try:
+            self.runtime.output_channels.update({acq.name : acq.acObject[0]})
+            self.runtime.output_values.update({acq.name : acq.acObject[1]})
+            self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT, output_value=conv_value(acq.acQbject[1]))})
+        except TypeError:
+            self.runtime.output_channels.update({acq.name : acq.acObject})
+            self.runtime.output_values.update({acq.name : 0})
+            self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT, output_value=Value.Inactive)})
       elif acq.acType == "TEMP_EN":
         try:
           self.runtime.temp_en
           raise KeyError("Temperature sensor enable channel already allocated")
         except AttributeError:
-          logging.debug("Configuring Temperature Power Enable: " + str(acq.acObject))
+          self.log.debug("Configuring Temperature Power Enable: " + str(acq.acObject))
           self.runtime.temp_en = acq.acObject
           self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT)})
           self.runtime.temp_power_commanded = True
@@ -217,11 +232,11 @@ class HDC(mqtt.Client):
       else:
         raise KeyError('"' + acq.acType + '"' + " is not a valid acquisition type")
 
-    logging.debug(f"GPIO configuration generated: {self._gpiodict}")
-    logging.debug("Applying configuration.")
+    self.log.debug(f"GPIO configuration generated: {self._gpiodict}")
+    self.log.debug("Applying configuration.")
     self._gpioreq = GPIO.request_lines(self.config.gpio_path ,consumer=self.config.name ,config=self._gpiodict)
 
-    logging.debug("Starting debouncing.")
+    self.log.debug("Starting debouncing.")
     # Switches
     for name, line in self.runtime.switch_channels.items():
       self.runtime.ct_ios.update({name : confirmation_threshold(1 if self._gpioreq.get_value(line) == Value.ACTIVE else 0, 3)})
@@ -237,16 +252,16 @@ class HDC(mqtt.Client):
 
   def notify(self, path, params, retain=False):
     params['time'] = str(time.time())
-    logging.debug(params)
+    self.log.debug(params)
 
     topic = self.config.name + '/' + path
     self.publish(topic, json.dumps(params), retain=retain)
-    logging.info("Published " + topic)
+    self.log.info("Published " + topic)
   
   def notify_bootup(self):
     boot_checks = {}
 
-    logging.debug("Bootup:")
+    self.log.debug("Bootup:")
     
     for bc_name, bc_cmd in self.config.boot_check_list.items():
         boot_checks[bc_name] = subprocess.check_output(
@@ -283,7 +298,7 @@ class HDC(mqtt.Client):
  
   def signal_handler(self, signum, frame):
     # so far, we only need to handle signals that make the program exit.
-    logging.warning("Caught a deadly signal: " + str(signum) + "!")
+    self.log.warning("Caught a deadly signal: " + str(signum) + "!")
     if self.ioPolling:
       self.ioPolling.stop()
     self.running = False
@@ -327,9 +342,9 @@ class HDC(mqtt.Client):
         self.runtime.temp_power_on = self.runtime.temp_power_sm[ts_name].run(self.runtime.temp_power_last, self.runtime.temp_power_on, received, self.runtime.temp_power_fault)
         if self.runtime.temp_power_sm[ts_name].broke:
           if self.runtime.temp_power_sm[ts_name].state == TempSensorPower.PowerState.RESTART:
-            logging.warn("Temp sensor \"" + ts_name + "down and causing one-wire network restart!")
+            self.log.warn("Temp sensor \"" + ts_name + "down and causing one-wire network restart!")
           else:
-            logging.warn("Temp sensor \"" + ts_name + "down!")
+            self.log.warn("Temp sensor \"" + ts_name + "down!")
       self.runtime.temp_power_last = self.runtime.temp_power_on
       checks["Temp Power"] = int(self.runtime.temp_power_on)
       self._gpioreq.set_value(self.runtime.temp_en, self.runtime.temp_power_on)
@@ -343,7 +358,7 @@ class HDC(mqtt.Client):
       self.io_check_count = 0
     else:
       self.io_check_count += 1
-    logging.debug("IO check " + str(self.io_check_count))
+    self.log.debug("IO check " + str(self.io_check_count))
     for name, chan in self.runtime.switch_channels.items():
       result = self.runtime.ct_ios[name].update(1 if self._gpioreq.get_value(chan) == Value.ACTIVE else 0)
       # value confirmed
@@ -361,7 +376,7 @@ class HDC(mqtt.Client):
         checks[name] = result[1]
         self.runtime.last_pir_state[name] = result[1]
     for name, chan in self.runtime.output_channels.items():
-      logging.debug(f"Channel {chan} outputting value {self.runtime.output_values[chan]}")
+      self.log.debug(f"Channel {chan} outputting value {self.runtime.output_values[chan]}")
       self._gpioreq.set_value(chan, self.runtime.output_values[chan])
     # don't run the temperature power control if there is no such thing.
     try:
@@ -374,21 +389,25 @@ class HDC(mqtt.Client):
     if checks:
       self.notify('event', checks)
     else:
-      logging.debug("Noting changed between timed io checks")
+      self.log.debug("Noting changed between timed io checks")
   
   def run(self):
+    self.log = logging.getLogger(__name__)
     self.tEvent = Event()
     self.running = True
     startup_count = 0
     self.io_check_count = 0
     self.loop_count = 0
+    self.mag_token = None
+    if self.config.tokens:
+        self.mag_token = MAGToken(self.config.tokens)
     try:
       if type(logging.getLevelName(self.config.loglevel.upper())) is int:
         logging.basicConfig(level=self.config.loglevel.upper())
       else:
-        logging.warning("Log level not configured.  Defaulting to WARNING.")
+        self.log.warning("Log level not configured.  Defaulting to WARNING.")
     except (KeyError, AttributeError) as e:
-      logging.warning("Log level not configured.  Defaulting to WARNING.  Caught: " + str(e))
+      self.log.warning("Log level not configured.  Defaulting to WARNING.  Caught: " + str(e))
 
     self.bootup()
     while startup_count < 10:
@@ -403,16 +422,16 @@ class HDC(mqtt.Client):
         atexit.register(self.ioPolling.stop)
         break
       except OSError:
-        logging.error("Error connecting on bootup.")
-        logging.error(traceback.format_exc())
-        logging.error("Waiting to reconnect...")
+        self.log.error("Error connecting on bootup.")
+        self.log.error(traceback.format_exc())
+        self.log.error("Waiting to reconnect...")
         self.tEvent.wait(30)
         
     if startup_count >= 10:
-      logging.critical("Too many startup tries.  Exiting.")
+      self.log.critical("Too many startup tries.  Exiting.")
       os._exit(1)
 
-    logging.info("Startup success.")
+    self.log.info("Startup success.")
     self.reconnect_me = False
     self.inner_reconnect_try = 0
     while self.running and (self.inner_reconnect_try < 10):
@@ -432,11 +451,11 @@ class HDC(mqtt.Client):
       except (socket.timeout, TimeoutError, ConnectionError):
         self.inner_reconnect_try += 1
         self.reconnect_me = True
-        logging.error("MQTT loop error.  Attempting to reconnect: " + inner_reconnect_try + "/10")
+        self.log.error("MQTT loop error.  Attempting to reconnect: " + inner_reconnect_try + "/10")
       except:
-        logging.critical("Exception in MQTT loop.")
-        logging.critical(traceback.format_exc())
-        logging.critical("Exiting.")
+        self.log.critical("Exception in MQTT loop.")
+        self.log.critical(traceback.format_exc())
+        self.log.critical("Exiting.")
         exit(2)
     if self.inner_reconnect_try >= 10:
       exit(1)
