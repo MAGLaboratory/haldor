@@ -31,7 +31,7 @@ class MAGToken:
     _tokens = []
     log = None
 
-    def __init__(self, tokens, start = "magld_"):
+    def __init__(self, tokens, start = "magls_"):
         self.log = logging.getLogger(__name__)
         # set the prefix that we are supposed to decode
         self.start = start
@@ -42,6 +42,7 @@ class MAGToken:
         idx = 0
         for token in tokens:
             try:
+                self.log.debug(f"Decoding token {idx}...")
                 idx += 1
                 self._tokens.append(self.token_decode(token))
             except AssertionError:
@@ -52,21 +53,22 @@ class MAGToken:
         else:
             self.log.critical("No tokens accepted.")
 
-    @staticmethod 
-    def token_decode(token):
+    def token_decode(self, token):
         """
         decodes and validates the token
         returns a byte array with the central token when decoded
         """
         token = token.rstrip()
         # length verification
-        assert len(token) >= len(MAGToken.start) + MAGToken.MINCTLEN + MAGToken.B64CRCLEN
+        self.log.debug("Checking token length.")
+        assert len(token) >= len(self.start) + MAGToken.MINCTLEN + MAGToken.B64CRCLEN
         # header verification
-        assert token[0:len(MAGToken.start)].lower() == MAGToken.start
+        self.log.debug("Checking token header.")
+        assert token[0:len(self.start)].lower() == self.start
         # retrieve token in byte array form
         # pad token with magical number of pad characters to make the base64 decode happy
-        central_token = MAGBase64.b64pad(token[len(MAGToken.start):-MAGToken.B64CRCLEN])
-        central_token = base64.base64decode(str.encode(central_token))
+        central_token = MAGBase64.b64pad(token[len(self.start):-MAGToken.B64CRCLEN])
+        central_token = base64.b64decode(str.encode(central_token))
 
         # retrieve the precalculated checksum inside the token
         end_checksum = token[-MAGToken.B64CRCLEN:]
@@ -74,6 +76,7 @@ class MAGToken:
         # consistent with the encoding schemes used by other famous token systems...
         calc_checksum = MAGBase64.b64enc(zlib.crc32(central_token).to_bytes(4, "little"))
         # checksum verification
+        self.log.debug("Checking token checksum.")
         assert calc_checksum == end_checksum
 
         return central_token

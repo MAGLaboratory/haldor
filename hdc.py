@@ -15,7 +15,7 @@ from maglab_crypto import MAGToken
 from threading import Event
 
 def conv_value(my_int):
-    return Value.Inactive if my_int == 0 else Value.Active
+    return Value.INACTIVE if my_int == 0 or my_int == False or (type(my_int) == str and my_int.lower() == "off") else Value.ACTIVE
 
 class HDCDaemon(Daemon):
   def run(self):
@@ -138,8 +138,21 @@ class HDC(mqtt.Client):
         self.log.info("Temperature sensor power commanded on")
         self.runtime.temp_power_commanded = True
     elif message.topic == f"{self.config.name}/cmd":
-        if self.mag_token:
-            commands = self.mag_token.cmd_msg_auth(message.payload.decode("utf-8"), 7200)
+      if self.mag_token:
+        commands = self.mag_token.cmd_msg_auth(message.payload.decode("utf-8"), 7200)
+        if commands:
+          line_values = {}
+          for name, value in commands.items():
+            if name in self.runtime.output_channels.keys():
+              if conv_value(value) == Value.ACTIVE:
+                line_values.update({self.runtime.output_channels[name]:Value.ACTIVE})
+                self.runtime.output_channels.update({name:Value.ACTIVE})
+              else:
+                line_values.update({self.runtime.output_channels[name]:Value.INACTIVE})
+                self.runtime.output_channels.update({name:Value.INACTIVE})
+          self._gpioreq.set_values(line_values)
+
+
 
   def on_disconnect(self, client, userdata, rc):
     self.log.warning("Disconnected: " + str(rc))
@@ -212,12 +225,12 @@ class HDC(mqtt.Client):
         self.log.debug("Configuring Output: " + str(acq.acObject))
         try:
             self.runtime.output_channels.update({acq.name : acq.acObject[0]})
-            self.runtime.output_values.update({acq.name : acq.acObject[1]})
-            self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT, output_value=conv_value(acq.acQbject[1]))})
+            self.runtime.output_values.update({acq.name : conv_value(acq.acObject[1])})
+            self._gpiodict.update({acq.acObject[0] : GPIO.LineSettings(direction=Direction.OUTPUT, output_value=conv_value(acq.acQbject[1]))})
         except TypeError:
             self.runtime.output_channels.update({acq.name : acq.acObject})
-            self.runtime.output_values.update({acq.name : 0})
-            self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT, output_value=Value.Inactive)})
+            self.runtime.output_values.update({acq.name : Value.INACTIVE})
+            self._gpiodict.update({acq.acObject : GPIO.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE)})
       elif acq.acType == "TEMP_EN":
         try:
           self.runtime.temp_en
@@ -377,7 +390,7 @@ class HDC(mqtt.Client):
         self.runtime.last_pir_state[name] = result[1]
     for name, chan in self.runtime.output_channels.items():
       self.log.debug(f"Channel {chan} outputting value {self.runtime.output_values[chan]}")
-      self._gpioreq.set_value(chan, self.runtime.output_values[chan])
+      self._gpioreq.set_value(chan, self.runtime.output_values[name])
     # don't run the temperature power control if there is no such thing.
     try:
       result = self.runtime.temp_fault_sm.update(0 if self._gpioreq.get_value(self.runtime.temp_fault) == Value.ACTIVE else 1)
@@ -399,8 +412,6 @@ class HDC(mqtt.Client):
     self.io_check_count = 0
     self.loop_count = 0
     self.mag_token = None
-    if self.config.tokens:
-        self.mag_token = MAGToken(self.config.tokens)
     try:
       if type(logging.getLevelName(self.config.loglevel.upper())) is int:
         logging.basicConfig(level=self.config.loglevel.upper())
@@ -408,6 +419,9 @@ class HDC(mqtt.Client):
         self.log.warning("Log level not configured.  Defaulting to WARNING.")
     except (KeyError, AttributeError) as e:
       self.log.warning("Log level not configured.  Defaulting to WARNING.  Caught: " + str(e))
+
+    if self.config.tokens:
+        self.mag_token = MAGToken(self.config.tokens)
 
     self.bootup()
     while startup_count < 10:
