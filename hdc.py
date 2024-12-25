@@ -248,7 +248,7 @@ class HDC(mqtt.Client):
 
     self.log.debug(f"GPIO configuration generated: {self._gpiodict}")
     self.log.debug("Applying configuration.")
-    self._gpioreq = GPIO.request_lines(self.config.gpio_path ,consumer=self.config.name ,config=self._gpiodict)
+    self._gpioreq = GPIO.request_lines(self.config.gpio_path, consumer=f"{self.config.name}:hdc.py", config=self._gpiodict)
 
     self.log.debug("Starting debouncing.")
     # Switches
