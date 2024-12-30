@@ -3,6 +3,10 @@
 
 HALDOR collects data from *doors*, *PIR*, and one-wire *Temperature Sensors.*
 
+## Branch Description
+This branch exists to edit the haldor GPIO data collection methods to include
+the now-default and cross-platform `gpiod`.
+
 ## Description
 HALDOR collects data from the sources listed above.  The collected data is reported via MQTT in two different ways: interrupt and checkup.  Interrupts are posted on `/event` and trigger automatically when any door or PIR changes state.  Checkups are requested via `reporter/checkup_req` and include all sensors when posted on `/checkup`.  On a configurable number of checkups, there is a long checkup which includes a configurable system information report.
 
