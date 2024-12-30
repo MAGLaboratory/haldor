@@ -44,7 +44,7 @@ class MAGToken:
             try:
                 self.log.debug(f"Decoding token {idx}...")
                 idx += 1
-                self._tokens.append(self.token_decode(token))
+                self._tokens.append(MAGToken.token_decode(self.start, token))
             except AssertionError:
                 self.log.error(f"Token {idx} not recognized!")
 
@@ -53,21 +53,23 @@ class MAGToken:
         else:
             self.log.critical("No tokens accepted.")
 
-    def token_decode(self, token):
+    @staticmethod
+    def token_decode(start, token):
+        log = logging.getLogger(__name__)
         """
         decodes and validates the token
         returns a byte array with the central token when decoded
         """
         token = token.rstrip()
         # length verification
-        self.log.debug("Checking token length.")
-        assert len(token) >= len(self.start) + MAGToken.MINCTLEN + MAGToken.B64CRCLEN
+        log.debug("Checking token length.")
+        assert len(token) >= len(start) + MAGToken.MINCTLEN + MAGToken.B64CRCLEN
         # header verification
-        self.log.debug("Checking token header.")
-        assert token[0:len(self.start)].lower() == self.start
+        log.debug("Checking token header.")
+        assert token[0:len(start)].lower() == start
         # retrieve token in byte array form
         # pad token with magical number of pad characters to make the base64 decode happy
-        central_token = MAGBase64.b64pad(token[len(self.start):-MAGToken.B64CRCLEN])
+        central_token = MAGBase64.b64pad(token[len(start):-MAGToken.B64CRCLEN])
         central_token = base64.b64decode(str.encode(central_token))
 
         # retrieve the precalculated checksum inside the token
@@ -76,7 +78,7 @@ class MAGToken:
         # consistent with the encoding schemes used by other famous token systems...
         calc_checksum = MAGBase64.b64enc(zlib.crc32(central_token).to_bytes(4, "little"))
         # checksum verification
-        self.log.debug("Checking token checksum.")
+        log.debug("Checking token checksum.")
         assert calc_checksum == end_checksum
 
         return central_token
@@ -86,12 +88,12 @@ class MAGToken:
         """ calculate the HMAC based on a token and the message """
         log = logging.getLogger(__name__)
         log.debug(f"HMAC calculation utility called with: {msg} and {token}")
-        obj = hmac.new(token, msg=str.encode(msg), digestmod=hashlib.sha265)
+        obj = hmac.new(token, msg=str.encode(msg), digestmod=hashlib.sha256)
         return MAGBase64.b64enc(obj.digest())
 
     def hmac_auth(self, msg, code):
         """ message authentication function """
-        self.log.debug(f"msg_auth called with: {msg} and {cdoe}")
+        self.log.debug(f"msg_auth called with: {msg} and {code}")
         match = False
         for token in self._tokens:
             calc = MAGToken.wr_hmac(msg, token)
@@ -113,13 +115,15 @@ class MAGToken:
         """
         # assume unaccepted by default
         retval = None
+        IDX_MSG = 1
+        IDX_CODE = 2
         self.log.debug(f"Received in command channel: {raw_msg}")
         # regex to break down the pair or tuple
         matches = re.fullmatch(r"\([\"\']?(\{.+\})[\"\']?\, [\"\']?(.*?)[\"\']?\)", raw_msg)
         if matches is not None:
-            self.log.debug(f"The split strings are: {matches[1]} and {matches[2]}")
+            self.log.debug(f"The split strings are: {matches[IDX_MSG]} and {matches[IDX_CODE]}")
             try:
-                data = json.loads(matches[1])
+                data = json.loads(matches[IDX_MSG])
                 # validate message time
                 current_time = time.time()
                 sent_time = data["time"]
@@ -127,8 +131,11 @@ class MAGToken:
                 self.log.debug(f"Message time validation; Current: {current_time}, "\
                         f"Sent: {sent_time}, Diff: {diff_time}")
                 assert abs(diff_time) <= max_time
-                
-                self.hmac_auth(matches[1], matches[2])
+                # a possible way to prevent repeat attacks is to store old message codes since
+                # commands will always have a time attached to ensure uniqueness
+
+                # validate message code
+                self.hmac_auth(matches[IDX_MSG], matches[IDX_CODE])
 
                 retval = data
             except (json.JSONDecodeError, AttributeError, AssertionError) as exc:
@@ -136,3 +143,14 @@ class MAGToken:
 
         return retval
 
+    @staticmethod
+    def cmd_msg_gen(msg, token):
+        """
+        The message is as a dictionary.
+
+        The token is as a byte array
+        """
+        msg["time"] = time.time()
+        msg_out = json.dumps(msg)
+        code = MAGToken.wr_hmac(msg_out, token)
+        return (msg_out, code)

@@ -138,18 +138,18 @@ class HDC(mqtt.Client):
         self.log.info("Temperature sensor power commanded on")
         self.runtime.temp_power_commanded = True
     elif message.topic == f"{self.config.name}/cmd":
+      self.log.info(f"Received command: {message.payload.decode('utf-8')}")
       if self.mag_token:
         commands = self.mag_token.cmd_msg_auth(message.payload.decode("utf-8"), 7200)
         if commands:
           line_values = {}
           for name, value in commands.items():
             if name in self.runtime.output_channels.keys():
-              if conv_value(value) == Value.ACTIVE:
-                line_values.update({self.runtime.output_channels[name]:Value.ACTIVE})
-                self.runtime.output_channels.update({name:Value.ACTIVE})
-              else:
-                line_values.update({self.runtime.output_channels[name]:Value.INACTIVE})
-                self.runtime.output_channels.update({name:Value.INACTIVE})
+              output = conv_value(value)
+              channel = self.runtime.output_channels[name]
+              line_values.update({channel:output})
+              self.runtime.output_values.update({name:output})
+              self.log.info(f"{name} on {channel} set to {output}")
           self._gpioreq.set_values(line_values)
 
 
