@@ -392,8 +392,8 @@ class HDC(mqtt.Client):
         logging.basicConfig(level=self.config.loglevel.upper())
       else:
         logging.warning("Log level not configured.  Defaulting to WARNING.")
-    except KeyError:
-      logging.warning("Log level not configured.  Defaulting to WARNING.  Caught: " + e)
+    except (KeyError, AttributeError) as e:
+      logging.warning("Log level not configured.  Defaulting to WARNING.  Caught: " + str(e))
 
     self.bootup()
     while startup_count < 10:
