@@ -12,6 +12,7 @@ from typing import *
 from multitimer import MultiTimer
 from confirmation_threshold import confirmation_threshold
 from threading import Event
+from threading import Thread
 
 class HDCDaemon(Daemon):
   def run(self):
@@ -117,11 +118,17 @@ class HDC(mqtt.Client):
     logging.info("Connected: " + str(rc))
     self.subscribe("reporter/checkup_req")
     self.subscribe(self.config.name + "/temp_power")
+    self.dmthread = Thread(target = self.deadman_checkup)
+    self.dmthread.start()
 
   def on_message(self, client, userdata, message):
     if (message.topic == "reporter/checkup_req"):
       logging.info("Checkup received.")
+      self.check_now.set()
       self.checkup()
+      self.dmthread.join()
+      self.dmthread = Thread(target = self.deadman_checkup)
+      self.dmthread.start()
     elif (message.topic == self.config.name + "/temp_power"):
       decoded = message.payload.decode('utf-8')
       logging.debug("Temperature sensor power command received: " + decoded)
@@ -134,6 +141,8 @@ class HDC(mqtt.Client):
 
   def on_disconnect(self, client, userdata, rc):
     logging.warning("Disconnected: " + str(rc))
+    self.check_now.set()
+    self.dmthread.join()
     if rc != 0:
         logging.error("Unexpected disconnection.  Attempting reconnection.")
         reconnect_count = 0
@@ -270,6 +279,8 @@ class HDC(mqtt.Client):
     if self.ioPolling:
       self.ioPolling.stop()
     self.running = False
+    self.check_now.set()
+    self.dmthread.join()
 
   def checkup(self):
     checks = {}
@@ -357,12 +368,25 @@ class HDC(mqtt.Client):
     else:
       logging.debug("Noting changed between timed io checks")
   
+  def deadman_checkup(self):
+    while self.check_now.is_set() == False:
+      logging.info("Deadman thread waiting.")
+      self.check_now.wait(60*7)
+      logging.info("Checkup thread execution")
+      if self.running == True and self.is_connected() == True:
+        if self.check_now.is_set() == False:
+          self.checkup()
+      else:
+        break
+    self.check_now.clear()
+
   def run(self):
     self.tEvent = Event()
     self.running = True
     startup_count = 0
     self.io_check_count = 0
     self.loop_count = 0
+    self.check_now = Event()
     try:
       if type(logging.getLevelName(self.config.loglevel.upper())) is int:
         logging.basicConfig(level=self.config.loglevel.upper())
